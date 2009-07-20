@@ -9,7 +9,7 @@ A translation schema from the external syntax (ERE) to our interal syntax (xhask
 > import Text.Regex.PDeriv.ExtPattern
 > import Text.Regex.PDeriv.Pattern
 > import Text.Regex.PDeriv.RE
-> import Char (chr)
+> import Data.Char (chr)
 
 There are two rules.
 e ~> p

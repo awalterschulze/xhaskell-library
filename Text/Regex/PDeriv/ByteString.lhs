@@ -17,9 +17,9 @@ A bytestring implementation of reg exp pattern matching using partial derivative
 >     , regexec
 >     ) where 
 
-> import List 
+> import Data.List 
 > -- import Data.Bits
-> import Char (ord)
+> import Data.Char (ord)
 > -- import GHC.IOBase
 > import GHC.Int
 > import qualified Data.IntMap as IM
