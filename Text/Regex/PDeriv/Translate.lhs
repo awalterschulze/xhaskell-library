@@ -87,10 +87,9 @@ getters and putters
 >                        i = ngi state
 >                    in case (hasAnchorS, hasAnchorE) of
 >                         (True, True) -> pat 
->                         (True, False) -> PPair pat (PVar (i-1) Nothing anychar)
->                         (False, True) -> PPair (PVar (i-1) Nothing anychar) pat -- todo: we need ungreedy here.
->                         (False, False) -> PPair (PVar (i-1) Nothing anychar) (PPair pat (PVar (i-2) Nothing anychar)) -- todo: we need ungreedy here.
->                      
+>                         (True, False) -> PPair pat (PVar (i-1) Nothing (Star anychar))
+>                         (False, True) -> PPair (PVar (i-1) Nothing (Star anychar)) pat -- todo: we need ungreedy here.
+>                         (False, False) -> PPair (PVar (i-1) Nothing (Star anychar)) (PPair pat (PVar (i-2) Nothing (Star anychar))) -- todo: we need ungreedy here.
 >                    
 
 the translation scheme
