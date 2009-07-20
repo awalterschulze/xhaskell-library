@@ -1,6 +1,6 @@
 > module Text.Regex.PDeriv.Parse (parsePat) where
 
-> {- By Kenny Zhuo Ming Lu and Martin Sulzmann, 2009. GPLv 3 -}
+> {- By Kenny Zhuo Ming Lu and Martin Sulzmann, 2009. BSD3 -}
 
 The parser that parse POSIX style regex syntax and translate it into our 
 internal pattern representation.
@@ -11,7 +11,7 @@ This parser is largely adapted from Text.Regex.TDFA.ReadRegex
 >                                      sepBy1, option, notFollowedBy, many1, lookAhead, eof, between,
 >                                      string, noneOf, digit, char, anyChar)
 > import Control.Monad(liftM, when, guard)
-> import List (sort,nub)
+> import Data.List (sort,nub)
 
 > import Text.Regex.PDeriv.ExtPattern (EPat(..))
 > import Text.Regex.PDeriv.Pattern (Pat(..))

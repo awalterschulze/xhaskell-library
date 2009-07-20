@@ -7,7 +7,7 @@
 
 > module Text.Regex.PDeriv.Nfa where 
 
-> import List 
+> import Data.List 
 
 
 > class Nfa s a | s -> a where
