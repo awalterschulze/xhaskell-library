@@ -301,7 +301,7 @@ x,y,z are group indices
 
 > digits = char_list_to_re ['0'..'9']
 
-> sigma = map chr [0 .. 127]
+> sigma = map chr [0 .. 255]
 
 > anychar = char_list_to_re sigma
 

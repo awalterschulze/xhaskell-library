@@ -461,33 +461,32 @@ Compilation
 
 
 
-> compile2 :: Pat -> (PdPat0Table, SNFA Pat Letter, Pat, IM.IntMap [Int])
-> compile2 p =  nfa `seq` snfa `seq` pdStateTable `seq` table `seq` (pdStateTable, snfa, p, table)
+> compile2 :: Pat -> (PdPat0Table, SNFA Pat Letter, Binder, IM.IntMap [Int])
+> compile2 p =  nfa `seq` snfa `seq` pdStateTable `seq` table `seq` (pdStateTable, snfa, b, table)
 >     where nfa = buildNFA p
 >           snfa = toSNFA nfa
 >           pdStateTable = buildPdPat0Table nfa snfa
 >           table = sdelta_table (sdelta_states snfa)
+>           b = toBinder p
 
-> patMatchIntStateCompiled2 :: (PdPat0Table, SNFA Pat Letter,Pat, IM.IntMap [Int] ) -> Word -> [Env]
-> patMatchIntStateCompiled2 (pdStateTable,snfa,p,table) w = 
+> patMatchIntStateCompiled2 :: (PdPat0Table, SNFA Pat Letter, Binder, IM.IntMap [Int] ) -> Word -> [Env]
+> patMatchIntStateCompiled2 (pdStateTable,snfa,b,table) w = 
 >   let
 >     filters = snfa `seq` rev_scanIntState snfa table $! w 
 >     mapping = snfa `seq` mapping_states snfa
->     s = p `seq` mapping `seq` mapping p
->     b = toBinder p
+>     s = 0 -- must be 0 -- p `seq` mapping `seq` mapping p
 >     allbinders' = b `seq` s `seq` pdStateTable `seq` filters `seq` (patMatchesIntStatePdPat0 0 pdStateTable w [(b,s)]) filters
 >     allbinders =  map fst allbinders'
 >   in map (collectPatMatchFromBinder w) allbinders
 
-> compile3 :: Pat -> (PdPat0Table, SNFA Pat Letter, Pat, IM.IntMap [Int])
+> compile3 :: Pat -> (PdPat0Table, SNFA Pat Letter, Binder, IM.IntMap [Int])
 > compile3 = compile2 
 
-> patMatchIntStateCompiled3 :: (PdPat0Table, SNFA Pat Letter,Pat, IM.IntMap [Int] ) -> Word -> [Env]
-> patMatchIntStateCompiled3 (pdStateTable,snfa,p,table) w = 
+> patMatchIntStateCompiled3 :: (PdPat0Table, SNFA Pat Letter, Binder, IM.IntMap [Int] ) -> Word -> [Env]
+> patMatchIntStateCompiled3 (pdStateTable,snfa,b,table) w = 
 >   let
 >     mapping = snfa `seq` mapping_states snfa
->     s = p `seq` mapping `seq` mapping p
->     b = toBinder p
+>     s = 0 -- must be 0 -- p `seq` mapping `seq` mapping p
 >     allbinders' = b `seq` s `seq` pdStateTable `seq` (patMatchesIntStatePdPat0NoRevScan 0 pdStateTable w [(b,s)]) 
 >     allbinders = allbinders' `seq` map fst (filter (\(_,i) -> i `elem` (sfinal_states snfa)) allbinders' )
 >   in map (collectPatMatchFromBinder w) allbinders
@@ -503,14 +502,14 @@ Compilation
 >     first _ = Nothing
 
 
-> greedyPatMatchCompiled2 :: (PdPat0Table, SNFA Pat Letter, Pat, IM.IntMap [Int]) -> Word -> Maybe Env
+> greedyPatMatchCompiled2 :: (PdPat0Table, SNFA Pat Letter, Binder, IM.IntMap [Int]) -> Word -> Maybe Env
 > greedyPatMatchCompiled2 compiled w =
 >      first (patMatchIntStateCompiled2 compiled w)
 >   where
 >     first (env:_) = return env
 >     first _ = Nothing
 
-> greedyPatMatchCompiled3 :: (PdPat0Table, SNFA Pat Letter, Pat, IM.IntMap [Int]) -> Word -> Maybe Env
+> greedyPatMatchCompiled3 :: (PdPat0Table, SNFA Pat Letter, Binder, IM.IntMap [Int]) -> Word -> Maybe Env
 > greedyPatMatchCompiled3 compiled w =
 >      first (patMatchIntStateCompiled3 compiled w)
 >   where
@@ -534,7 +533,7 @@ Compilation
 
 > -- | The PDeriv backend spepcific 'Regex' type
 
-> newtype Regex = Regex (PdPat0Table, SNFA Pat Letter, Pat, IM.IntMap [Int]) 
+> newtype Regex = Regex (PdPat0Table, SNFA Pat Letter, Binder , IM.IntMap [Int]) 
 
 
 -- todo: use the CompOption and ExecOption
