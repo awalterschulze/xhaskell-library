@@ -41,39 +41,6 @@ A word is a byte string.
 
 > type Word = S.ByteString
 
-the word matching algorithm using partDeriv
-
-> match :: RE -> Word -> Bool
-> match r w = match' [r] w
->     where 
->       match' :: [RE] -> Word -> Bool
->       match' rs w = 
->           case S.uncons w of 
->           Nothing  -> any isEmpty rs
->           Just (l,w') -> 
->               let rs' = nub (concat [ partDeriv r l | r <- rs])
->               in match' rs' w'
-
-
--- Kenny's scanner
--- right to left scanning of word to calculate reachable states
-
-> rev_scan :: NFA Pat Letter -> Word -> [[Pat]]
-> rev_scan nfa w = rev_scan_helper (S.reverse w) (delta_states nfa) (final_states nfa) []
-
-> rev_scan_helper w delta curr_states chain =
->     case S.uncons w of
->	    Just (l,w') -> 
->			 let 
->			     pairs  = [ (p_s,p_t) | p_t <- curr_states, 
->			                (p_s, (l',_), p_t') <- delta , 
->			                l' == l, p_t == p_t' ]
->  		             (next_states', curr_states') = unzip pairs
->			     next_states'' =  nub next_states'
->		             curr_states'' =  nub curr_states'
->			     next_chain = curr_states'':chain
->		         in (rev_scan_helper w' delta $! next_states'') $! next_chain
->           Nothing -> curr_states:chain
 
 version using the SNFA
 
@@ -139,67 +106,6 @@ the lookup function
 > type Env = [(Int,Word)]
 
 
-version using symbolic pattern states
-
-> patMatch :: Pat -> Word -> [Env]
-> patMatch p w = concat (map (collectPatMatch w) allpats)
->   where
->     nfa = buildNFA p
->     filters =  rev_scan nfa w 
->     allpats = patMatches 0 w [p] filters
-
-> patMatches :: Int -> Word -> [Pat] -> [[Pat]] -> [Pat]
-> patMatches cnt w' ps fps' = 
->     case S.uncons w' of
->      Nothing -> ps
->      Just (l,w) -> 
->         let (fp:fps) = fps'
->             reachable_ps = [ p | p <- ps, elem p fp ]
->             next_ps = concat [ pdPat p (l,cnt) | p <- reachable_ps ]
->         in patMatches (cnt+1) w next_ps fps
-
-
-version using Ints for state representation
-
-> patMatchIntState :: Pat -> Word -> [Env]
-> patMatchIntState p w = 
->   let
->     nfa  = buildNFA p
->     snfa = nfa `seq` toSNFA nfa
->     table = sdelta_table (sdelta_states snfa)
->     filters = snfa `seq` table `seq` rev_scanIntState snfa table $! w 
->     mapping = snfa `seq` mapping_states snfa
->     allpats = filters `seq` mapping `seq` (patMatchesIntState 0 mapping w [p]) filters
->   in concat (map (collectPatMatch w) $! allpats)
-
-> patMatchesIntState :: Int -> (Pat -> Int) -> Word -> [Pat] -> [[Int]] -> [Pat]
-> patMatchesIntState cnt mapping w' ps fps' =
->     case (S.uncons w',fps') of 
->       (Nothing,_) -> ps 
->       (Just (l,w),(fp:fps)) -> 
->           let 
->               reachable_ps = [ p | p <- ps, elem (mapping p) fp ]
->               next_ps = concat [ pdPat p (l,cnt) | p <- reachable_ps ]
->          in (patMatchesIntState (cnt+1)  mapping  w  $! next_ps) $! fps
->       (Just (_,_),[]) ->
->           error "patMatchesIntState failed: fps is empty, but input word is not empty."
-
-> collectPatMatch :: Word -> Pat -> [Env]
-> collectPatMatch w p =
->  let collect (PVar x (Just (i,j)) r)  = 
->          if isEmpty r then [[(x,rg_collect w (i,j))]] else []
->      collect (PVar x Nothing r) = 
->          if isEmpty r then [[(x,S.empty)]] else []  -- Nothing case !!!
->      collect (PEmpty p) = collect p
->      collect (PChoice p1 p2) =
->         (collect p1) ++ (collect p2)             
->             -- indet choice
->      collect (PPair p1 p2) = 
->          (collect p1) `combine` (collect p2)     
->           -- build all possible combinations
->  in collect p
->   where
->      combine xss yss = [ xs ++ ys |  xs <- xss, ys <- yss]
 
 > rg_collect :: S.ByteString -> (Int,Int) -> S.ByteString
 > rg_collect w (i,j) = S.take (j' - i' + 1) (S.drop i' w)
@@ -210,43 +116,6 @@ version using Ints for state representation
 
 actual pattern matcher
 
-No optimization
-
-> greedyPatMatch0 :: Pat -> Word -> Maybe Env
-> greedyPatMatch0 p w =
->     first (patMatch p w) 
->   where
->     first (env:_) = return env
->     first _ = Nothing
-
-
-Level 1 optimization
-
-> greedyPatMatch1 :: Pat -> Word -> Maybe Env
-> greedyPatMatch1 p w =
->      first (patMatchIntState p w)
->   where
->     first (env:_) = return env
->     first _ = Nothing
-
-
-
-Profiling shows that greedyPatMatch1 is still not optimized.
-The root cause is the use of (mapping p) in patMatchIntState.
-The mapping is costly as it requires structure comparison between regexp patterns
-and reg-exps for multiple times. (Size of the input word is a factor of the complexity)
-
-Apart from that there are many partial derivative operations being performed 
-during runtime. 
-
-The idea is to elminate this mapping operations and partial derivative
-operation at "run-time". 
-
-
-We compile pattern to FAs. Since in patMatchIntState, we've been using Int to keep a record 
-of the reachable pattern derivatives. We could leverage on these Int states.
-However, we can't simply throw away the pattern because we need to compute
-the bindings. We "compile" patterns to their int states and bindings.
 
 A binder is set of (pattern var * range) pairs
 

@@ -43,67 +43,6 @@ A word is a byte string.
 
 the word matching algorithm using partDeriv
 
-> match :: RE -> Word -> Bool
-> match r w = match' [r] w
->     where 
->       match' :: [RE] -> Word -> Bool
->       match' rs w = 
->           case S.uncons w of 
->           Nothing  -> any isEmpty rs
->           Just (l,w') -> 
->               let rs' = nub (concat [ partDeriv r l | r <- rs])
->               in match' rs' w'
-
-
--- Kenny's scanner
--- right to left scanning of word to calculate reachable states
-
-> rev_scan :: NFA Pat Letter -> Word -> [[Pat]]
-> rev_scan nfa w = rev_scan_helper (S.reverse w) (delta_states nfa) (final_states nfa) []
-
-> rev_scan_helper w delta curr_states chain =
->     case S.uncons w of
->	    Just (l,w') -> 
->			 let 
->			     pairs  = [ (p_s,p_t) | p_t <- curr_states, 
->			                (p_s, (l',_), p_t') <- delta , 
->			                l' == l, p_t == p_t' ]
->  		             (next_states', curr_states') = unzip pairs
->			     next_states'' =  nub next_states'
->		             curr_states'' =  nub curr_states'
->			     next_chain = curr_states'':chain
->		         in (rev_scan_helper w' delta $! next_states'') $! next_chain
->           Nothing -> curr_states:chain
-
-version using the SNFA
-
-In addtion, we pass in a lookup table that maps
-target_state * letter to source_state.
-
-> rev_scanIntState :: SNFA Pat Letter -> IM.IntMap [Int] -> Word -> [[Int]]
-> rev_scanIntState snfa table w = table `seq` rev_scan_helperIntState (S.reverse w) table (sfinal_states snfa) []
-
-> rev_scan_helperIntState w delta curr_states chain = 
->     case S.uncons w of 
->     Just (l,w') ->
->           let 
->                 pairs  =     [ (p_s,p_t) | p_t <- curr_states, 
->                                p_s <- my_lookup p_t l delta ]
->                 (next_states', curr_states') = unzip pairs
->                 next_states'' =  nub next_states'
->                 curr_states'' =  nub curr_states'
->                 next_chain = curr_states'':chain
->           in (rev_scan_helperIntState w' delta $! next_states'') $! next_chain
->     _ -> curr_states:chain
-
-a hash table mapping (target_state,  letter) to source_state
-
-> sdelta_table sdelta = foldl (\ dict (p,x,q) -> 
->                                let k = my_hash q (fst x)
->                                in case IM.lookup k dict of
->                                    Just ps -> IM.update (\ _ -> Just (p:ps)) k dict
->                                    Nothing -> IM.insert k [p] dict) IM.empty sdelta
-
 the hash function
 
 > my_hash :: Int -> Char -> Int
@@ -138,115 +77,11 @@ the lookup function
 
 > type Env = [(Int,Word)]
 
-
-version using symbolic pattern states
-
-> patMatch :: Pat -> Word -> [Env]
-> patMatch p w = concat (map (collectPatMatch w) allpats)
->   where
->     nfa = buildNFA p
->     filters =  rev_scan nfa w 
->     allpats = patMatches 0 w [p] filters
-
-> patMatches :: Int -> Word -> [Pat] -> [[Pat]] -> [Pat]
-> patMatches cnt w' ps fps' = 
->     case S.uncons w' of
->      Nothing -> ps
->      Just (l,w) -> 
->         let (fp:fps) = fps'
->             reachable_ps = [ p | p <- ps, elem p fp ]
->             next_ps = concat [ pdPat p (l,cnt) | p <- reachable_ps ]
->         in patMatches (cnt+1) w next_ps fps
-
-
-version using Ints for state representation
-
-> patMatchIntState :: Pat -> Word -> [Env]
-> patMatchIntState p w = 
->   let
->     nfa  = buildNFA p
->     snfa = nfa `seq` toSNFA nfa
->     table = sdelta_table (sdelta_states snfa)
->     filters = snfa `seq` table `seq` rev_scanIntState snfa table $! w 
->     mapping = snfa `seq` mapping_states snfa
->     allpats = filters `seq` mapping `seq` (patMatchesIntState 0 mapping w [p]) filters
->   in concat (map (collectPatMatch w) $! allpats)
-
-> patMatchesIntState :: Int -> (Pat -> Int) -> Word -> [Pat] -> [[Int]] -> [Pat]
-> patMatchesIntState cnt mapping w' ps fps' =
->     case (S.uncons w',fps') of 
->       (Nothing,_) -> ps 
->       (Just (l,w),(fp:fps)) -> 
->           let 
->               reachable_ps = [ p | p <- ps, elem (mapping p) fp ]
->               next_ps = concat [ pdPat p (l,cnt) | p <- reachable_ps ]
->          in (patMatchesIntState (cnt+1)  mapping  w  $! next_ps) $! fps
->       (Just (_,_),[]) ->
->           error "patMatchesIntState failed: fps is empty, but input word is not empty."
-
-> collectPatMatch :: Word -> Pat -> [Env]
-> collectPatMatch w p =
->  let collect (PVar x (Just (i,j)) r)  = 
->          if isEmpty r then [[(x,rg_collect w (i,j))]] else []
->      collect (PVar x Nothing r) = 
->          if isEmpty r then [[(x,S.empty)]] else []  -- Nothing case !!!
->      collect (PEmpty p) = collect p
->      collect (PChoice p1 p2) =
->         (collect p1) ++ (collect p2)             
->             -- indet choice
->      collect (PPair p1 p2) = 
->          (collect p1) `combine` (collect p2)     
->           -- build all possible combinations
->  in collect p
->   where
->      combine xss yss = [ xs ++ ys |  xs <- xss, ys <- yss]
-
 > rg_collect :: S.ByteString -> (Int,Int) -> S.ByteString
 > rg_collect w (i,j) = S.take (j' - i' + 1) (S.drop i' w)
 >	       where i' = fromIntegral i
 >	             j' = fromIntegral j
 
-
-
-actual pattern matcher
-
-No optimization
-
-> greedyPatMatch0 :: Pat -> Word -> Maybe Env
-> greedyPatMatch0 p w =
->     first (patMatch p w) 
->   where
->     first (env:_) = return env
->     first _ = Nothing
-
-
-Level 1 optimization
-
-> greedyPatMatch1 :: Pat -> Word -> Maybe Env
-> greedyPatMatch1 p w =
->      first (patMatchIntState p w)
->   where
->     first (env:_) = return env
->     first _ = Nothing
-
-
-
-Profiling shows that greedyPatMatch1 is still not optimized.
-The root cause is the use of (mapping p) in patMatchIntState.
-The mapping is costly as it requires structure comparison between regexp patterns
-and reg-exps for multiple times. (Size of the input word is a factor of the complexity)
-
-Apart from that there are many partial derivative operations being performed 
-during runtime. 
-
-The idea is to elminate this mapping operations and partial derivative
-operation at "run-time". 
-
-
-We compile pattern to FAs. Since in patMatchIntState, we've been using Int to keep a record 
-of the reachable pattern derivatives. We could leverage on these Int states.
-However, we can't simply throw away the pattern because we need to compute
-the bindings. We "compile" patterns to their int states and bindings.
 
 A binder is set of (pattern var * range) pairs
 
@@ -351,48 +186,6 @@ collection function for binder
 > collectPatMatchFromBinder w ((x,Nothing):xs) = (x,S.empty):(collectPatMatchFromBinder w xs)
 > collectPatMatchFromBinder w ((x,Just (i,j)):xs) = (x,rg_collect w (i,j)):(collectPatMatchFromBinder w xs)
 
-the new pattern matching algo
-
-> patMatchIntStatePdPat0 :: Pat -> Word -> [Env]
-> patMatchIntStatePdPat0 p w = 
->   let
->     nfa  = buildNFA p
->     snfa = nfa `seq` toSNFA nfa
->     table = sdelta_table (sdelta_states snfa)
->     filters = w `seq` snfa `seq` table `seq` rev_scanIntState snfa table w 
->     mapping = snfa `seq` mapping_states snfa
->     s = p `seq` mapping `seq` mapping p
->     pdStateTable = buildPdPat0Table nfa snfa
->     b = toBinder p
->     allbinders' = b `seq` s `seq` pdStateTable `seq` filters `seq` (patMatchesIntStatePdPat0 0 pdStateTable w [(b,s)]) filters
->     allbinders = allbinders' `seq` map fst allbinders'
->   in map (collectPatMatchFromBinder w) $! allbinders
-
-
-> patMatchesIntStatePdPat0 :: Int -> PdPat0Table -> Word -> [(Binder,Int)] -> [[Int]] -> [(Binder,Int)]
-> patMatchesIntStatePdPat0 cnt pdStateTable  w' ps fps' =
->     case (S.uncons w', fps') of 
->       (Nothing,_) -> ps 
->       (Just (l,w),(fp:fps)) -> 
->           let 
->               reachable_ps = ps `seq` fp `seq` [ p | p@(_,s) <- ps, elem s fp ]
->               next_ps = l `seq` cnt `seq` pdStateTable `seq` reachable_ps `seq` concat [ lookupPdPat0 pdStateTable  p (l,cnt) | p <- reachable_ps ]
->               cnt' = cnt + 1
->          in cnt' `seq` pdStateTable `seq` w `seq` next_ps `seq` fps `seq` patMatchesIntStatePdPat0 cnt'  pdStateTable  w  next_ps fps
->       (Just (l,w),[]) ->
->           error "patMatchesIntStatePdPat0 failed with empty fps and non empty input word!"
-
-Level 2 optimization (int states, reverse scanning, pre compiled pdPat)
-
-> greedyPatMatch2 :: Pat -> Word -> Maybe Env
-> greedyPatMatch2 p w =
->      first (patMatchIntStatePdPat0 p w)
->   where
->     first (env:_) = return env
->     first _ = Nothing
-
-
-Level 3 optimization (int states, no reverse scanning, pre compiled pdPat)
 
 > patMatchesIntStatePdPat0NoRevScan :: Int -> PdPat0Table -> Word -> [(Binder,Int)] -> [(Binder,Int)]
 > patMatchesIntStatePdPat0NoRevScan cnt pdStateTable  w' eps =
@@ -445,45 +238,15 @@ Level 3 optimization (int states, no reverse scanning, pre compiled pdPat)
 Compilation
 
 
-> compile1 :: Pat -> (SNFA Pat Letter, Pat, IM.IntMap [Int] )
-> compile1 p = nfa `seq` snfa `seq` table `seq` (snfa, p, table)
->     where nfa = buildNFA p
->           snfa = toSNFA nfa
->           table = sdelta_table (sdelta_states snfa)
-
-> patMatchIntStateCompiled1 :: (SNFA Pat Letter, Pat, IM.IntMap [Int]) -> Word -> [Env]
-> patMatchIntStateCompiled1 (snfa,p,table) w = 
->   let
->     filters = snfa `seq` table `seq` rev_scanIntState snfa table $! w 
->     mapping = snfa `seq` mapping_states snfa
->     allpats = filters `seq` mapping `seq` (patMatchesIntState 0 mapping w [p]) filters
->   in concat (map (collectPatMatch w) $! allpats)
-
-
-
-> compile2 :: Pat -> (PdPat0Table, SNFA Pat Letter, Binder, IM.IntMap [Int])
-> compile2 p =  nfa `seq` snfa `seq` pdStateTable `seq` table `seq` (pdStateTable, snfa, b, table)
+> compile3 :: Pat -> (PdPat0Table, SNFA Pat Letter, Binder)
+> compile3 p =  nfa `seq` snfa `seq` pdStateTable `seq` (pdStateTable, snfa, b)
 >     where nfa = buildNFA p
 >           snfa = toSNFA nfa
 >           pdStateTable = buildPdPat0Table nfa snfa
->           table = sdelta_table (sdelta_states snfa)
 >           b = toBinder p
 
-> patMatchIntStateCompiled2 :: (PdPat0Table, SNFA Pat Letter, Binder, IM.IntMap [Int] ) -> Word -> [Env]
-> patMatchIntStateCompiled2 (pdStateTable,snfa,b,table) w = 
->   let
->     filters = snfa `seq` rev_scanIntState snfa table $! w 
->     mapping = snfa `seq` mapping_states snfa
->     s = 0 -- must be 0 -- p `seq` mapping `seq` mapping p
->     allbinders' = b `seq` s `seq` pdStateTable `seq` filters `seq` (patMatchesIntStatePdPat0 0 pdStateTable w [(b,s)]) filters
->     allbinders =  map fst allbinders'
->   in map (collectPatMatchFromBinder w) allbinders
-
-> compile3 :: Pat -> (PdPat0Table, SNFA Pat Letter, Binder, IM.IntMap [Int])
-> compile3 = compile2 
-
-> patMatchIntStateCompiled3 :: (PdPat0Table, SNFA Pat Letter, Binder, IM.IntMap [Int] ) -> Word -> [Env]
-> patMatchIntStateCompiled3 (pdStateTable,snfa,b,table) w = 
+> patMatchIntStateCompiled3 :: (PdPat0Table, SNFA Pat Letter, Binder) -> Word -> [Env]
+> patMatchIntStateCompiled3 (pdStateTable,snfa,b) w = 
 >   let
 >     mapping = snfa `seq` mapping_states snfa
 >     s = 0 -- must be 0 -- p `seq` mapping `seq` mapping p
@@ -492,24 +255,7 @@ Compilation
 >   in map (collectPatMatchFromBinder w) allbinders
 
 
-
-
-> greedyPatMatchCompiled1 :: (SNFA Pat Letter, Pat, IM.IntMap [Int]) -> Word -> Maybe Env
-> greedyPatMatchCompiled1 compiled w =
->      first (patMatchIntStateCompiled1 compiled w)
->   where
->     first (env:_) = return env
->     first _ = Nothing
-
-
-> greedyPatMatchCompiled2 :: (PdPat0Table, SNFA Pat Letter, Binder, IM.IntMap [Int]) -> Word -> Maybe Env
-> greedyPatMatchCompiled2 compiled w =
->      first (patMatchIntStateCompiled2 compiled w)
->   where
->     first (env:_) = return env
->     first _ = Nothing
-
-> greedyPatMatchCompiled3 :: (PdPat0Table, SNFA Pat Letter, Binder, IM.IntMap [Int]) -> Word -> Maybe Env
+> greedyPatMatchCompiled3 :: (PdPat0Table, SNFA Pat Letter, Binder) -> Word -> Maybe Env
 > greedyPatMatchCompiled3 compiled w =
 >      first (patMatchIntStateCompiled3 compiled w)
 >   where
@@ -533,7 +279,7 @@ Compilation
 
 > -- | The PDeriv backend spepcific 'Regex' type
 
-> newtype Regex = Regex (PdPat0Table, SNFA Pat Letter, Binder , IM.IntMap [Int]) 
+> newtype Regex = Regex (PdPat0Table, SNFA Pat Letter, Binder) 
 
 
 -- todo: use the CompOption and ExecOption
