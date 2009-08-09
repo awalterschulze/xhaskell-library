@@ -4,12 +4,11 @@
 
 In this page, we compare the performance of xhaskell-library with other implementations using a few examples.
 
-{{{Text.Regex.PDeriv, Text.Regex.PDeriv.TwoPasses, Tex.Regex.PDeriv.Reverse}}} are three different matching approaches we provide in our library.
-
-{{{Text.Regex.Posix}}} is the "default" library in currently shipped with GHC.
-{{{Text.Regex.PCRE}}} is the wrapper of the C PCRE library.
-{{{Text.Regex.PCRELight}}} is the light-weight wrapper of the C PCRE library.
-{{{Text.Regex.TDFA}}} is another library that implements of TRE.
+ * {{{Text.Regex.PDeriv, Text.Regex.PDeriv.TwoPasses, Tex.Regex.PDeriv.Reverse}}} are three different matching approaches we provide in our library.
+ * {{{Text.Regex.Posix}}} is the "default" library in currently shipped with GHC.
+ * {{{Text.Regex.PCRE}}} is a [http://hackage.haskell.org/package/regex-pcre-builtin wrapper of the C PCRE library].
+ * {{{Text.Regex.PCRELight}}} is a [http://hackage.haskell.org/package/pcre-light-0.3.1 light-weight wrapper of the C PCRE library].
+ * {{{Text.Regex.TDFA}}} is a [http://hackage.haskell.org/package/regex-tdfa regular expression library] that implements of [http://www.laurikari.net/tre/ TRE].
 
 The tests are conducted on a Macbook Core2Duo 2.4GHZ machine with 4GRam.
 The time/memory usage are measured using the GHC runtime flag {{{+RTS -sstderr -RTS}}}
