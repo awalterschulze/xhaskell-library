@@ -1,0 +1,16 @@
+#summary This page summarizes the benchmarks of xhaskell-library performance
+
+= Benchmarks =
+
+This page summarizes the benchmarks of xhaskell-library performance, using a few examples.
+
+
+==  The US Address Pattern ==
+
+In this example, we use regex to extract the US addresses from an address book file.
+The pattern will match address in format of <ADDRESS> <STATE CODE> <ZIP CODE>,
+e.g. Mountain View, CA 90410.
+
+
+||Text.Regex.PDeriv||Text.Regex.PDeriv.TwoPasses||Text.Regex.Posix||Text.Regex.PCRE||Text.Regex.PCRELight||Text.Regex.TDFA||
+||6.57s/46MB||4.84s/47MB||19.31s/48MB||1.87s/52MB||272.80s/45MB||18.86s/16MB||
