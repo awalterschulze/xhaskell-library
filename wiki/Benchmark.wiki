@@ -11,6 +11,9 @@ In this page, we compare the performance of xhaskell-library with other implemen
 {{{Text.Regex.PCRELight}}} is the light-weight wrapper of the C PCRE library.
 {{{Text.Regex.TDFA}}} is another library that implements of TRE.
 
+The tests are conducted on a Macbook Core2Duo 2.4GHZ machine with 4GRam.
+The time/memory usage are measured using the GHC runtime flag {{{+RTS -sstderr -RTS}}}
+
 ==  The US Address Pattern ==
 
 In this example, we use regex to extract the US addresses from an address book file.
