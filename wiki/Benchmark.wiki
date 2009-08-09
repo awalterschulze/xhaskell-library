@@ -16,7 +16,7 @@ The time/memory usage are measured using the GHC runtime flag {{{+RTS -sstderr -
 
 ==  The US Address Pattern ==
 
-In this example, we use regex to extract the US addresses from an address book file.
+In this example, we use regex to extract the US addresses from an address book file. The address book file we used in this example  is available in the [http://code.google.com/p/xhaskell-library/downloads/list download] session.
 The pattern will match address in format of 
 {{{
 <ADDRESS> <STATE CODE> <ZIP CODE>
