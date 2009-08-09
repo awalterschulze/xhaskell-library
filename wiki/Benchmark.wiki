@@ -2,13 +2,22 @@
 
 = Benchmarks =
 
-This page summarizes the benchmarks of xhaskell-library performance, using a few examples.
+In this page, we compare the performance of xhaskell-library with other implementations using a few examples.
 
+{{{Text.Regex.PDeriv, Text.Regex.PDeriv.TwoPasses, Tex.Regex.PDeriv.Reverse}}} are three different matching approaches we provide in our library.
+
+{{{Text.Regex.Posix}}} is the "default" library in currently shipped with GHC.
+{{{Text.Regex.PCRE}}} is the wrapper of the C PCRE library.
+{{{Text.Regex.PCRELight}}} is the light-weight wrapper of the C PCRE library.
+{{{Text.Regex.TDFA}}} is another library that implements of TRE.
 
 ==  The US Address Pattern ==
 
 In this example, we use regex to extract the US addresses from an address book file.
-The pattern will match address in format of <ADDRESS> <STATE CODE> <ZIP CODE>,
+The pattern will match address in format of 
+{{{
+<ADDRESS> <STATE CODE> <ZIP CODE>
+}}}
 e.g. Mountain View, CA 90410.
 
 
