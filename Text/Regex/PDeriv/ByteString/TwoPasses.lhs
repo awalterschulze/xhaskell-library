@@ -31,8 +31,6 @@ failures states as long as we cannot find them in the sets.
 
 > import Text.Regex.Base(RegexOptions(..))
 
-
-> import Text.Regex.PDeriv.Nfa
 > import Text.Regex.PDeriv.RE
 > import Text.Regex.PDeriv.Pretty (Pretty(..))
 > import Text.Regex.PDeriv.Common (Range, Letter, IsEmpty(..), my_hash, my_lookup, GFlag(..), IsGreedy(..))
@@ -68,28 +66,6 @@ target_state * letter to source_state.
 >                 next_chain = curr_states'':chain
 >           in (rev_scan_helperIntState w' table $! next_states'') $! next_chain
 >     _ -> curr_states:chain
-
-a hash table mapping (target_state,  letter) to source_state
-
-> {-
-> sdelta_table sdelta = foldl (\ dict (p,x,q) -> 
->                                let k = my_hash q (fst x)
->                                in case IM.lookup k dict of
->                                    Just ps -> IM.update (\ _ -> Just (p:ps)) k dict
->                                    Nothing -> IM.insert k [p] dict) IM.empty sdelta
-> -}
-
-> instance Nfa Pat Letter where
->     pDeriv p l = map fst (pdPat0 p l)
->     sigma p = map (\x -> (x,0)) (sigmaRE (strip p))
->                   -- index doesn't matter for NFA construction
->     empty p = isEmpty (strip p)
-
-
-> instance Nfa RE Char where
->      pDeriv = partDeriv
->      sigma = sigmaRE
->      empty = isEmpty
 
 
 
@@ -157,6 +133,7 @@ Some helper functions used in buildPdPat0Table
 
 > myLookup = lookup
 
+> mapping :: D.Dictionary (Pat,Int) -> Pat -> Int
 > mapping dictionary x = let candidates = D.lookupAll (D.hash x) dictionary
 >                        in candidates `seq` 
 >                           case candidates of
@@ -166,7 +143,13 @@ Some helper functions used in buildPdPat0Table
 >                                 (Just i) -> i
 >                                 Nothing -> error ("this should not happen. looking up " ++ (pretty x) ++ " from " ++ (show candidates) )
 
-
+> builder :: [Letter] 
+>         -> [Pat] 
+>         -> [(Pat,Letter, [(Pat, Int -> Binder -> Binder)] )]
+>         -> [Pat] 
+>         -> D.Dictionary (Pat,Int)
+>         -> Int 
+>         -> ([Pat], [(Pat, Letter, [(Pat, Int -> Binder -> Binder)])], D.Dictionary (Pat,Int))
 > builder sig acc_states acc_delta curr_states dict max_id 
 >     | null curr_states  = (acc_states, acc_delta, dict)
 >     | otherwise = 
@@ -202,15 +185,6 @@ Some helper functions used in buildPdPat0Table
 > patMatchIntStatePdPat0 :: Pat -> Word -> [Env]
 > patMatchIntStatePdPat0 p w = 
 >   let
->     {-
->     nfa  = buildNFA p
->     snfa = nfa `seq` toSNFA nfa
->     table = sdelta_table (sdelta_states snfa)
->     filters = w `seq` snfa `seq` table `seq` rev_scanIntState snfa table w 
->     mapping = snfa `seq` mapping_states snfa
->     s = p `seq` mapping `seq` mapping p
->     pdStateTable = buildPdPat0Table nfa snfa
->     -}
 >     (pdStateTable,sfinals,pdStateTableRev) = buildPdPat0Table p
 >     filters = pdStateTableRev `seq` sfinals `seq` rev_scanIntState sfinals pdStateTableRev w
 >     s = 0
@@ -299,9 +273,9 @@ Some helper functions used in buildPdPat0Table
 >  case greedyPatMatchCompiled r bs of
 >    Nothing -> Right (Nothing)
 >    Just env ->
->      let pre = S.empty  -- todo
->          main = S.empty -- todo
->          post = S.empty -- todo
+>      let pre = case lookup (-1) env of { Just w -> w ; Nothing -> S.empty }
+>          main = case lookup 0 env of { Just w -> w ; Nothing -> S.empty }
+>          post = case lookup (-2) env of { Just w -> w ; Nothing -> S.empty }
 >          matched = map snd (filter (\(v,w) -> v > 0) env)
 >      in Right (Just (pre,main,post,matched))
 

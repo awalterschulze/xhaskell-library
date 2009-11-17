@@ -18,7 +18,9 @@
 >                      , anchorEnd :: Bool } -- the state for trasslation
 >             deriving Show
 
-> initTState = TState { ngi = -1, gi = 1, anchorStart = False, anchorEnd = False }
+
+> -- variables 0,-1,-2 are reserved for pre, main and post!
+> initTState = TState { ngi = -3, gi = 1, anchorStart = False, anchorEnd = False } 
 
 > type NGI = Int -- the non group index
 
@@ -78,12 +80,11 @@ getters and putters
 >                  (pat, state) ->
 >                    let hasAnchorS = anchorStart state
 >                        hasAnchorE = anchorEnd state
->                        i = ngi state
 >                    in case (hasAnchorS, hasAnchorE) of
->                       (True, True) -> pat 
->                       (True, False) -> PPair pat (PE (Star anychar Greedy))
->                       (False, True) -> PPair (PVar (i-1) [] (PE (Star anychar NotGreedy)))  pat 
->                       (False, False) -> PPair (PVar (i-1) [] (PE (Star anychar NotGreedy))) (PPair pat (PE (Star anychar Greedy))) 
+>                       (True, True) -> PVar 0 [] pat 
+>                       (True, False) -> PPair (PVar 0 [] pat) (PVar (-2) [] (PE (Star anychar Greedy)))
+>                       (False, True) -> PPair (PVar (-1) [] (PE (Star anychar NotGreedy))) (PVar 0 [] pat)
+>                       (False, False) -> PPair (PVar (-1) [] (PE (Star anychar NotGreedy))) (PPair (PVar 0 [] pat) (PVar (-2) [] (PE (Star anychar Greedy))))
 
 > {-| 'trans' The top level translation scheme e ~> p
 >     There are two sub rules.
