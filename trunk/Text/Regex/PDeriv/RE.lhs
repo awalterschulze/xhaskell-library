@@ -4,82 +4,126 @@
 
 > module Text.Regex.PDeriv.RE where
 
-
 > import Data.List (nub)
 
-> import Text.Regex.PDeriv.Empty
+> import Text.Regex.PDeriv.Common (IsEmpty(..), IsGreedy(..), GFlag(..))
+> import Text.Regex.PDeriv.Dictionary (Key(..), primeL, primeR)
 
 ------------------------
--- regular expresions
 
+> -- | data type of the regular expresions
 > data RE = Phi 
->  | Empty        -- empty lang
->  | L Char	  -- literal
->  | Choice RE RE -- r1 + r2
->  | Seq RE RE    -- (r1,r2)
->  | Star RE      -- r*
-> --   deriving Eq
+>  | Empty        -- ^ an empty exp
+>  | L Char	  -- ^ a literal / a character
+>  | Choice RE RE GFlag -- ^ a choice exp 'r1 + r2'
+>  | Seq RE RE     -- ^ a pair exp '(r1,r2)'
+>  | Star RE GFlag -- ^ a kleene's star exp 'r*'
 
+> -- | the eq instance
 > instance Eq RE where
 >     (==) Empty Empty = True
 >     (==) (L x) (L y) = x == y
->     (==) (Choice r1 r2) (Choice r3 r4) = (r1 == r3) && (r2 == r4)
+>     (==) (Choice r1 r2 g1) (Choice r3 r4 g2) = (g1 == g2) && (r2 == r4) && (r1 == r3) 
 >     (==) (Seq r1 r2) (Seq r3 r4) = (r1 == r3) && (r2 == r4)
->     (==) (Star r1) (Star r2) = r1 == r2
+>     (==) (Star r1 g1) (Star r2 g2) = g1 == g2 && r1 == r2 
 >     (==) _ _ = False
 
 
-A pretty printing function for regular expression
-
+> -- | A pretty printing function for regular expression
 > instance Show RE where
 >     show Phi = "{}"
 >     show Empty = "<>"
 >     show (L c) = show c
->     show (Choice r1 r2) = ("(" ++ show r1 ++ "|" ++ show r2 ++ ")")
->     show (Seq r1 r2) = ("<" ++ show r1 ++ "," ++ show r2 ++ ">")
->     show (Star r) = (show r ++ "*")
+>     show (Choice r1 r2 g) = "(" ++ show r1 ++ "|" ++ show r2 ++ ")" ++ show g
+>     show (Seq r1 r2) = "<" ++ show r1 ++ "," ++ show r2 ++ ">"
+>     show (Star r g) = show r ++ "*" ++ show g
 
-Summig up a list of regular expressions with choice operation.
+> instance IsGreedy RE where
+>     isGreedy Phi = True
+>     isGreedy Empty = False
+>     isGreedy (Choice r1 r2 Greedy) = True
+>     isGreedy (Choice r1 r2 NotGreedy) = False -- (isGreedy r1) || (isGreedy r2)
+>     isGreedy (Seq r1 r2) = (isGreedy r1) || (isGreedy r2)
+>     isGreedy (Star r Greedy) = True
+>     isGreedy (Star r NotGreedy) = False
+>     isGreedy (L _) = True
 
+> instance Key RE where
+>     hash Phi = [0]
+>     hash Empty = [1]
+>     hash (Choice r1 r2 Greedy) = {- let x1 = head (hash r1)
+>                                      x2 = head (hash r2)
+>                                  in [ 3 +  x1 * primeL + x2 * primeR ] -} [3]
+>     hash (Choice r1 r2 NotGreedy) = {- let x1 = head (hash r1)
+>                                         x2 = head (hash r2)
+>                                     in [ 4 + x1 * primeL + x2 * primeR ] -} [4]
+>     hash (Seq r1 r2) = {- let x1 = head (hash r1)
+>                            x2 = head (hash r2)
+>                        in [ 5 + x1 * primeL + x2 * primeR ] -} [5]
+>     hash (Star r Greedy) = {- let x = head (hash r)
+>                            in [ 6 + x * primeL ] -} [6]
+>     hash (Star r NotGreedy) = {- let x = head (hash r)
+>                             in [ 7 + x * primeL ] -} [7]
+>     hash (L c) = {- let x = head (hash c)
+>                  in [ 8 + x * primeL ] -} [8]
+
+
+
+> -- | function 'resToRE' sums up a list of regular expressions with the choice operation.
 > resToRE :: [RE] -> RE
-> resToRE (r:res) = foldl Choice r res
+> resToRE (r:res) = foldl (\x y -> Choice x y Greedy) r res
 > resToRE [] = Phi
 
-Check whether regular expressions are empty
-
+> -- | function 'isEmpty' checks whether regular expressions are empty
 > instance IsEmpty RE where
 >   isEmpty Phi = False
 >   isEmpty Empty = True
->   isEmpty (Choice r1 r2) = (isEmpty r1) || (isEmpty r2)
+>   isEmpty (Choice r1 r2 g) = (isEmpty r1) || (isEmpty r2)
 >   isEmpty (Seq r1 r2) = (isEmpty r1) && (isEmpty r2)
->   isEmpty (Star r) = True
+>   isEmpty (Star r g) = True
 >   isEmpty (L _) = False
         
 
-the partial derivative operations
-
+> -- | function 'partDeriv' implements the partial derivative operations for regular expressions. We don't pay attention to the greediness flag here.
 > partDeriv :: RE -> Char -> [RE]
-> partDeriv Phi l = []
-> partDeriv Empty l = []
-> partDeriv (L l') l 
+> partDeriv r l = nub (partDerivSub r l)
+
+
+> partDerivSub Phi l = []
+> partDerivSub Empty l = []
+> partDerivSub (L l') l 
 >     | l == l'   = [Empty]
 >     | otherwise = []
-> partDeriv (Choice r1 r2) l = nub ((partDeriv r1 l) ++ (partDeriv r2 l))
-> partDeriv (Seq r1 r2) l 
+> partDerivSub (Choice r1 r2 g) l = 
+>     let 
+>         s1 = partDerivSub r1 l 
+>         s2 = partDerivSub r2 l
+>     in {- s1 `seq` s2 `seq` -} (s1 ++ s2)
+> partDerivSub (Seq r1 r2) l 
 >     | isEmpty r1 = 
->           let s1 = [ (Seq r1' r2) | r1' <- partDeriv r1 l ]
->               s2 = partDeriv r2 l
->           in nub (s1 ++ s2)
->     | otherwise = [ (Seq r1' r2) | r1' <- partDeriv r1 l ]
-> partDeriv (Star r) l = [ (Seq r' (Star r)) | r' <- partDeriv r l ]
+>           let 
+>               s0 = partDerivSub r1 l
+>               s1 = s0 `seq` [ (Seq r1' r2) | r1' <- s0 ]
+>               s2 = partDerivSub r2 l
+>           in {- s1 `seq` s2 `seq` -} (s1 ++ s2)
+>     | otherwise = 
+>         let 
+>             s0 = partDerivSub r1 l 
+>         in {- s0 `seq` -} [ (Seq r1' r2) | r1' <- s0 ]
+> partDerivSub (Star r g) l = 
+>     let
+>         s0 = partDerivSub r l
+>     in {- s0 `seq` -} [ (Seq r' (Star r g)) | r' <- s0 ]
 
-
-
+> -- | function 'sigmaRE' returns all characters appearing in a reg exp.
 > sigmaRE :: RE -> [Char]
-> sigmaRE (L l) = [l]
-> sigmaRE (Seq r1 r2) = nub ((sigmaRE r1) ++ (sigmaRE r2))
-> sigmaRE (Choice r1 r2) = nub ((sigmaRE r1) ++ (sigmaRE r2))
-> sigmaRE (Star r) = sigmaRE r
-> sigmaRE Phi = []
-> sigmaRE Empty = []
+> sigmaRE r = let s = (sigmaREsub r)
+>             in s `seq` nub s
+
+> sigmaREsub (L l) = [l]
+> sigmaREsub (Seq r1 r2) = (sigmaREsub r1) ++ (sigmaREsub r2) 
+> sigmaREsub (Choice r1 r2 g) = (sigmaREsub r1) ++ (sigmaREsub r2) 
+> sigmaREsub (Star r g) = sigmaREsub r
+> sigmaREsub Phi = []
+> sigmaREsub Empty = []
 

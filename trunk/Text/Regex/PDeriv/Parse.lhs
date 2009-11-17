@@ -14,7 +14,7 @@ This parser is largely adapted from Text.Regex.TDFA.ReadRegex
 > import Data.List (sort,nub)
 
 > import Text.Regex.PDeriv.ExtPattern (EPat(..))
-> import Text.Regex.PDeriv.Pattern (Pat(..))
+> import Text.Regex.PDeriv.IntPattern (Pat(..))
 > import Text.Regex.PDeriv.RE (RE(..))
 > import Text.Regex.PDeriv.Translate (translate) 
 
@@ -117,31 +117,34 @@ parse a single non-escaped char
 
 
 > p_post_anchor_or_atom atom = 
->     (char '?' >> return (EOpt atom))
->     <|> (char '+' >> return (EPlus atom))
->     <|> (char '*' >> return (EStar atom))
+>     (try (char '?' >> char '?' >> return (EOpt atom False)) <|> (char '?' >> return (EOpt atom True)))
+>     <|> (try (char '+' >> char '?' >> return (EPlus atom False)) <|> (char '+' >> return (EPlus atom True)))
+>     <|> (try (char '*' >> char '?' >> return (EStar atom False)) <|> (char '*' >> return (EStar atom True)))
+>     <|> p_bound_nongreedy atom
 >     <|> p_bound atom 
 >     <|> return atom
 
 
-> p_bound atom = try $ between (char '{') (char '}') (p_bound_spec atom)
+> p_bound_nongreedy atom = try $ between (string "{") (string "}?") (p_bound_spec atom False)
 
-> p_bound_spec atom = do { lowS <- many1 digit
->                        ; let lowI = read lowS
->                        ; highMI <- option (Just lowI) $ try $ 
->                          do { char ','
+> p_bound atom = try $ between (char '{') (char '}') (p_bound_spec atom True)
+
+> p_bound_spec atom b = do { lowS <- many1 digit
+>                         ; let lowI = read lowS
+>                         ; highMI <- option (Just lowI) $ try $ 
+>                           do { char ','
 >  -- parsec note: if 'many digits' fails below then the 'try' ensures
 >  -- that the ',' will not match the closing '}' in p_bound, same goes
 >  -- for any non '}' garbage after the 'many digits'.
->                             ; highS <- many digit
->                             ; if null highS then return Nothing -- no upper bound
->                               else do { let highI = read highS
->                                       ; guard (lowI <= highI)
->                                       ; return (Just (read highS))
->                                       }
->                             }
->                        ; return (EBound atom lowI highMI)
->                        }
+>                              ; highS <- many digit
+>                              ; if null highS then return Nothing -- no upper bound
+>                                else do { let highI = read highS
+>                                        ; guard (lowI <= highI)
+>                                        ; return (Just (read highS))
+>                                        }
+>                              }
+>                         ; return (EBound atom lowI highMI b)
+>                         }
 
 
 
