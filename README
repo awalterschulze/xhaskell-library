@@ -2,16 +2,17 @@
 Text.Regex.Base
 
 == Folder structures ==
- Text/Regex/PDeriv/ByteString.lhs		The single pass version
+ Text/Regex/PDeriv/ByteString.lhs		The shortcut to ByteString/RightToLeft.lhs
+ Text/Regex/PDeriv/ByteString/LeftToRight.lhs	The single pass version left to right
+ Text/Regex/PDeriv/ByteString/RightToLeft.lhs	The single pass version right to left
  Text/Regex/PDeriv/ByteString/TwoPasses.lhs	The two passes version
  Text/Regex/PDeriv/Common.lhs 			The common stuffs
  Text/Regex/PDeriv/ExtPattern.lhs		The external pattern syntax
- Text/Regex/PDeriv/Pattern.lhs			The internal pattern syntax
+ Text/Regex/PDeriv/IntPattern.lhs		The internal pattern syntax
  Text/Regex/PDeriv/RE.lhs			The regular expression
  Text/Regex/PDeriv/Parse.lhs			The parser
- Text/Regex/PDeriv/Translate.lhs		The translator that translates ext to int
+ Text/Regex/PDeriv/Translate.lhs		The translator that translates ext patterns to int patterns
  Text/Regex/PDeriv/Nfa.lhs			The NFA stuff
- Text/Regex/PDeriv/Empty.lhs			The Empty type class
  Text/Regex/PDeriv/Pretty.lhs			The Pretty type class
  example/USAddress.lhs				The example
  
