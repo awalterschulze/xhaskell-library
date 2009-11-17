@@ -29,7 +29,6 @@ an emptiable pattern and the input word is fully consumed.
 > import Text.Regex.Base(RegexOptions(..))
 
 
-> import Text.Regex.PDeriv.Nfa
 > import Text.Regex.PDeriv.RE
 > import Text.Regex.PDeriv.Pretty (Pretty(..))
 > import Text.Regex.PDeriv.Common (Range, Letter, IsEmpty(..), my_hash, my_lookup, GFlag(..), IsEmpty(..))
@@ -42,20 +41,6 @@ an emptiable pattern and the input word is fully consumed.
 A word is a byte string.
 
 > type Word = S.ByteString
-
-
-> instance Nfa Pat Letter where
->     pDeriv p l = map fst (pdPat0 p l)
->     sigma p = map (\x -> (x,0)) (sigmaRE (strip p))
->                   -- index doesn't matter for NFA construction
->     empty p = isEmpty (strip p)
-
-
-> instance Nfa RE Char where
->      pDeriv = partDeriv
->      sigma = sigmaRE
->      empty = isEmpty
-
 
 
 ----------------------------
@@ -101,6 +86,7 @@ Some helper functions used in buildPdPat0Table
 
 > myLookup = lookup
 
+> mapping :: D.Dictionary (Pat,Int) -> Pat -> Int
 > mapping dictionary x = let candidates = D.lookupAll (D.hash x) dictionary
 >                        in candidates `seq` 
 >                           case candidates of
@@ -110,7 +96,13 @@ Some helper functions used in buildPdPat0Table
 >                                 (Just i) -> i
 >                                 Nothing -> error ("this should not happen. looking up " ++ (pretty x) ++ " from " ++ (show candidates) )
 
-
+> builder :: [Letter] 
+>         -> [Pat] 
+>         -> [(Pat,Letter, [(Pat, Int -> Binder -> Binder)] )]
+>         -> [Pat] 
+>         -> D.Dictionary (Pat,Int)
+>         -> Int 
+>         -> ([Pat], [(Pat, Letter, [(Pat, Int -> Binder -> Binder)])], D.Dictionary (Pat,Int))
 > builder sig acc_states acc_delta curr_states dict max_id 
 >     | null curr_states  = (acc_states, acc_delta, dict)
 >     | otherwise = 
@@ -249,9 +241,9 @@ Compilation
 >  case greedyPatMatchCompiled r bs of
 >    Nothing -> Right (Nothing)
 >    Just env ->
->      let pre = S.empty  -- todo
->          main = S.empty -- todo
->          post = S.empty -- todo
+>      let pre = case lookup (-1) env of { Just w -> w ; Nothing -> S.empty }
+>          main = case lookup 0 env of { Just w -> w ; Nothing -> S.empty }
+>          post = case lookup (-2) env of { Just w -> w ; Nothing -> S.empty }
 >          matched = map snd (filter (\(v,w) -> v > 0) env)
 >      in Right (Just (pre,main,post,matched))
 
