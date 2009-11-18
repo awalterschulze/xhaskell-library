@@ -27,7 +27,7 @@
 >	    ; (Right usPatCompiled) <- compile compBlank execBlank usPat
 >	    ; results <- mapM (parseUSAddrCompiled usPatCompiled) ls
 >	    ; putStrLn $ show results
->           ; putStrLn $ show (length (filter isJust results))
+>           -- ; putStrLn $ show (length (filter isJust results))
 >	    }
 
 

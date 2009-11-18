@@ -1,6 +1,6 @@
 > module Main where
 
-> import Text.Regex.PDeriv.ByteString.TwoPasses
+> import Text.Regex.PDeriv.ByteString
 
 > import qualified Data.ByteString.Char8 as S
 
@@ -12,7 +12,12 @@
 >            Left _ -> error " compilation failed . "
 >            Right r -> r
 
-> parseUSAddrCompiled s = regexec compiled s 
+> parseUSAddrCompiled s = 
+>     let res = regexec compiled s 
+>     in case res of 
+>            { (Right (Just (_,_,_,l@[addr_with_city,state,zip,szip]) )) -> Just l
+>            ; _ -> Nothing
+>            }
 
 > main :: IO ()
 > main = do { f <- S.readFile "/tmp/addr.txt"
