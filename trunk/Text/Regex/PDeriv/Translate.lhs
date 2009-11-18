@@ -81,10 +81,10 @@ getters and putters
 >                    let hasAnchorS = anchorStart state
 >                        hasAnchorE = anchorEnd state
 >                    in case (hasAnchorS, hasAnchorE) of
->                       (True, True) -> PVar 0 [] pat 
->                       (True, False) -> PPair (PVar 0 [] pat) (PVar (-2) [] (PE (Star anychar Greedy)))
->                       (False, True) -> PPair (PVar (-1) [] (PE (Star anychar NotGreedy))) (PVar 0 [] pat)
->                       (False, False) -> PPair (PVar (-1) [] (PE (Star anychar NotGreedy))) (PPair (PVar 0 [] pat) (PVar (-2) [] (PE (Star anychar Greedy))))
+>                       (True, True) -> pat -- PVar 0 [] pat 
+>                       (True, False) -> PPair pat (PVar (-2) [] (PE (Star anychar Greedy)))
+>                       (False, True) -> PPair (PVar (-1) [] (PE (Star anychar NotGreedy))) pat
+>                       (False, False) -> PPair (PVar (-1) [] (PE (Star anychar NotGreedy))) (PPair pat (PVar (-2) [] (PE (Star anychar Greedy))))
 
 > {-| 'trans' The top level translation scheme e ~> p
 >     There are two sub rules.

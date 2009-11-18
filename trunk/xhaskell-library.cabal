@@ -20,9 +20,9 @@ flag base4
 library 
   Build-Depends:        regex-base >= 0.93.1, parsec, mtl, containers, bytestring
   if flag(base4)
-    Build-Depends:      base >= 4.0, ghc-prim
+    Build-Depends:      base >= 4.0 && <= 4.1, ghc-prim
   else
-    Build-Depends:      base < 4.0
+    Build-Depends:      base < 4.0 && >= 3.0
   Exposed-Modules:       Text.Regex.PDeriv.ByteString
                          Text.Regex.PDeriv.ByteString.TwoPasses
                          Text.Regex.PDeriv.ByteString.RightToLeft

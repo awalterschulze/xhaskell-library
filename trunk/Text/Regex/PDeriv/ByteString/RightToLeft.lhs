@@ -236,14 +236,18 @@ newtype Regex = Regex (PdPat0TableRev, SNFA Pat Letter, Binder)
 >        -> Either String (Maybe (S.ByteString, S.ByteString, S.ByteString, [S.ByteString]))
 > regexec (Regex r) bs =
 >  case greedyPatMatchCompiled r bs of
->    Nothing -> Right (Nothing)
+>    Nothing -> Right Nothing
 >    Just env ->
 >      let pre = case lookup (-1) env of { Just w -> w ; Nothing -> S.empty }
->          main = case lookup 0 env of { Just w -> w ; Nothing -> S.empty }
 >          post = case lookup (-2) env of { Just w -> w ; Nothing -> S.empty }
+>          full_len = S.length bs
+>          pre_len = S.length pre
+>          post_len = S.length post
+>          main_len = full_len - pre_len - post_len
+>          main_and_post = S.drop pre_len bs
+>          main = main_and_post `seq` main_len `seq` S.take main_len main_and_post
 >          matched = map snd (filter (\(v,w) -> v > 0) env)
 >      in Right (Just (pre,main,post,matched))
-
 
 > -- | Control whether the pattern is multiline or case-sensitive like Text.Regex and whether to
 > -- capture the subgroups (\1, \2, etc).  Controls enabling extra anchor syntax.

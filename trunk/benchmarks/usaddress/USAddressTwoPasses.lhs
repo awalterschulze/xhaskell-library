@@ -20,7 +20,7 @@
 >                            Right r -> r
 >                 results = (map (parseUSAddrCompiled compiled) ls)
 >           ; putStrLn $ show results
->           ; putStrLn $ show (length (filter isJust results))
+>           -- ; putStrLn $ show (length (filter isJust results))
 >           }
 
 
