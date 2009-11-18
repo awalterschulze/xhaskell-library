@@ -24,5 +24,5 @@ e.g. Mountain View, CA 90410.
 
 The address book file we used in this example  is available in the [http://code.google.com/p/xhaskell-library/downloads/list download] session. Note that the addresses listed in this file are artificially generated.
 
-||Text.Regex.PDeriv||Text.Regex.PDeriv.TwoPasses||Tex.Regex.PDeriv.Reverse||Text.Regex.Posix||Text.Regex.PCRE||Text.Regex.PCRELight||Text.Regex.TDFA||
-||4.71s/51MB||2.87s/53MB||1.81s/43MB||19.31s/48MB||1.87s/52MB||272.80s/45MB||18.86s/16MB||
+||Text.Regex.PDeriv.ByteString.LeftToRight||Text.Regex.PDeriv.ByteString.TwoPasses||Tex.Regex.PDeriv.ByteString.RightToLeft||Text.Regex.Posix||Text.Regex.PCRE||Text.Regex.PCRELight||Text.Regex.TDFA||
+||4.64s/32MB||2.44s/32MB||1.70s/32MB||19.31s/48MB||1.85s/52MB||272.80s/45MB||18.86s/16MB||
