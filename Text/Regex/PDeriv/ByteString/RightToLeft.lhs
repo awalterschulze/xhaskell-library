@@ -31,7 +31,7 @@ is reached (AKA init state of the NFA) and the input word is fully consumed.
 
 > import Text.Regex.PDeriv.RE
 > import Text.Regex.PDeriv.Pretty (Pretty(..))
-> import Text.Regex.PDeriv.Common (Range, Letter, IsEmpty(..), my_hash, my_lookup, GFlag(..), IsGreedy(..))
+> import Text.Regex.PDeriv.Common (Range, Letter, IsEmpty(..), my_hash, my_lookup, GFlag(..), IsGreedy(..), nub3)
 > import Text.Regex.PDeriv.IntPattern (Pat(..), pdPat, pdPat0, toBinder, Binder(..), strip)
 > import Text.Regex.PDeriv.Parse
 > import qualified Text.Regex.PDeriv.Dictionary as D (Dictionary(..), Key(..), insertNotOverwrite, lookupAll, empty, isIn, nub)
@@ -143,11 +143,9 @@ Some helper functions used in buildPdPat0Table
 >       Nothing -> fs
 >       Just (l,w') -> 
 >           let 
->               -- fs' = nub2 [ (j, f . f') | (i, f) <- fs, (j, f') <- lookupPdPat0' pdStateTableRev i (l,cnt) ]
->               fs' = -- faster without nub2
->                     [ (j, f . (f' cnt), pri:pris) | (i, f, pris) <- fs, (j, f', pri) <- lookupPdPat0' pdStateTableRev i (l,cnt) ]
+>               fs' = nub3 [ (j, f . (f' cnt), pri:pris) | (i, f, pris) <- fs, (j, f', pri) <- lookupPdPat0' pdStateTableRev i (l,cnt) ]
 >           in patMatchesIntStatePdPat0Rev (cnt-1) pdStateTableRev w' fs'
->  
+
 
 > patMatchIntStatePdPat0Rev :: Pat -> Word -> [Env]
 > patMatchIntStatePdPat0Rev p w = 

@@ -31,8 +31,8 @@ an emptiable pattern and the input word is fully consumed.
 
 > import Text.Regex.PDeriv.RE
 > import Text.Regex.PDeriv.Pretty (Pretty(..))
-> import Text.Regex.PDeriv.Common (Range, Letter, IsEmpty(..), my_hash, my_lookup, GFlag(..), IsEmpty(..))
-> import Text.Regex.PDeriv.IntPattern (Pat(..), pdPat, pdPat0, toBinder, Binder(..), strip,  nub2)
+> import Text.Regex.PDeriv.Common (Range, Letter, IsEmpty(..), my_hash, my_lookup, GFlag(..), IsEmpty(..), nub2)
+> import Text.Regex.PDeriv.IntPattern (Pat(..), pdPat, pdPat0, toBinder, Binder(..), strip)
 > import Text.Regex.PDeriv.Parse
 > import qualified Text.Regex.PDeriv.Dictionary as D (Dictionary(..), Key(..), insertNotOverwrite, lookupAll, empty, isIn, nub)
 
@@ -119,11 +119,11 @@ Some helper functions used in buildPdPat0Table
 
 the "partial derivative" operations among integer states + binders
 
-> lookupPdPat0 :: PdPat0Table -> (Binder,Int) -> Letter -> [(Binder,Int)]
-> lookupPdPat0 hash_table (binder,i) (l,x) = 
+> lookupPdPat0 :: PdPat0Table -> (Int,Binder) -> Letter -> [(Int,Binder)]
+> lookupPdPat0 hash_table (i,binder) (l,x) = 
 >     case IM.lookup (my_hash i l) hash_table of
 >     Just pairs -> 
->         [ (op x binder, j) | (j, op) <- pairs ]
+>         [ (j, op x binder) | (j, op) <- pairs ]
 >     Nothing -> []
 
 collection function for binder 
@@ -134,17 +134,17 @@ collection function for binder
 > collectPatMatchFromBinder w ((x,rs):xs) = (x,foldl S.append S.empty $ map (rg_collect w) (reverse rs)):(collectPatMatchFromBinder w xs)
 
 
-> patMatchesIntStatePdPat0 :: Int -> PdPat0Table -> Word -> [(Binder,Int)] -> [(Binder,Int)]
+> patMatchesIntStatePdPat0 :: Int -> PdPat0Table -> Word -> [(Int,Binder)] -> [(Int,Binder)]
 > patMatchesIntStatePdPat0 cnt pdStateTable  w' eps =
 >     case S.uncons w' of 
 >       Nothing -> eps 
 >       Just (l,w) -> 
 >           let 
->               eps' = fast_nub [ ep' | ep <- eps, ep' <- lookupPdPat0 pdStateTable ep (l,cnt) ] 
->               -- it is expensive to nub here. nub when pdStateTable is built
+>               eps' = nub2 [ ep' | ep <- eps, ep' <- lookupPdPat0 pdStateTable ep (l,cnt) ] 
 >               cnt' = cnt + 1
 >           in  cnt' `seq` pdStateTable `seq` w `seq` eps' `seq` patMatchesIntStatePdPat0 cnt'  pdStateTable  w eps'
 
+> {- 
 > fast_nub :: [(Binder,Int)] -> [(Binder,Int)]
 > fast_nub eps = 
 >     let im = IM.empty 
@@ -157,7 +157,7 @@ collection function for binder
 >                  Just _ ->  fast_nub' im eps
 >                  Nothing -> let im' = IM.insert p () im
 >                             in (e,p):(fast_nub' im' eps)
-
+> -}
 
 
 > patMatchIntStatePdPat0 :: Pat -> Word -> [Env]
@@ -166,8 +166,8 @@ collection function for binder
 >     (pdStateTable,sfinal) = buildPdPat0Table p
 >     s = 0
 >     b = toBinder p
->     allbinders' = b `seq` s `seq` pdStateTable `seq` (patMatchesIntStatePdPat0 0 pdStateTable w [(b,s)])
->     allbinders = allbinders' `seq` map fst (filter (\(_,i) -> i `elem` sfinal) allbinders' )
+>     allbinders' = b `seq` s `seq` pdStateTable `seq` (patMatchesIntStatePdPat0 0 pdStateTable w [(s,b)])
+>     allbinders = allbinders' `seq` map snd (filter (\(i,_) -> i `elem` sfinal) allbinders' )
 >   in map (collectPatMatchFromBinder w) $! allbinders
 
 
@@ -193,8 +193,8 @@ Compilation
 > patMatchIntStateCompiled (pdStateTable,sfinal,b) w = 
 >   let
 >     s = 0 
->     allbinders' = b `seq` s `seq` pdStateTable `seq` (patMatchesIntStatePdPat0 0 pdStateTable w [(b,s)]) 
->     allbinders = allbinders' `seq` map fst (filter (\(_,i) -> i `elem` sfinal) allbinders' )
+>     allbinders' = b `seq` s `seq` pdStateTable `seq` (patMatchesIntStatePdPat0 0 pdStateTable w [(s,b)]) 
+>     allbinders = allbinders' `seq` map snd (filter (\(i,_) -> i `elem` sfinal) allbinders' )
 >   in map (collectPatMatchFromBinder w) allbinders
 
 
