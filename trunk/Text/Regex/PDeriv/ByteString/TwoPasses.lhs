@@ -33,8 +33,8 @@ failures states as long as we cannot find them in the sets.
 
 > import Text.Regex.PDeriv.RE
 > import Text.Regex.PDeriv.Pretty (Pretty(..))
-> import Text.Regex.PDeriv.Common (Range, Letter, IsEmpty(..), my_hash, my_lookup, GFlag(..), IsGreedy(..))
-> import Text.Regex.PDeriv.IntPattern (Pat(..), pdPat, pdPat0, toBinder, Binder(..), strip, nub2)
+> import Text.Regex.PDeriv.Common (Range, Letter, IsEmpty(..), my_hash, my_lookup, GFlag(..), IsGreedy(..), nub2)
+> import Text.Regex.PDeriv.IntPattern (Pat(..), pdPat, pdPat0, toBinder, Binder(..), strip)
 > import Text.Regex.PDeriv.Parse
 > import qualified Text.Regex.PDeriv.Dictionary as D (Dictionary(..), Key(..), insertNotOverwrite, lookupAll, empty, isIn, nub)
 
@@ -167,11 +167,11 @@ Some helper functions used in buildPdPat0Table
 
 > -- | function 'lookupPdPat0' looks up the "partial derivative" operations given an integer state and apply the update function to the binder.
 
-> lookupPdPat0 :: PdPat0Table -> (Binder,Int) -> Letter -> [(Binder,Int)]
-> lookupPdPat0 hash_table (binder,i) (l,x) = 
+> lookupPdPat0 :: PdPat0Table -> (Int,Binder) -> Letter -> [(Int,Binder)]
+> lookupPdPat0 hash_table (i,binder) (l,x) = 
 >     case IM.lookup (my_hash i l) hash_table of
 >     Just pairs -> 
->         [ (op x binder, j) | (j, op) <- pairs ]
+>         [ (j, op x binder) | (j, op) <- pairs ]
 >     Nothing -> []
 
 > -- | function 'collectPatMatchFromBinder' collects match results from binders
@@ -189,17 +189,17 @@ Some helper functions used in buildPdPat0Table
 >     filters = pdStateTableRev `seq` sfinals `seq` rev_scanIntState sfinals pdStateTableRev w
 >     s = 0
 >     b = toBinder p
->     allbinders' = b `seq` s `seq` pdStateTable `seq` filters `seq` (patMatchesIntStatePdPat0 0 pdStateTable w [(b,s)]) filters
->     allbinders = allbinders' `seq` map fst allbinders'
+>     allbinders' = b `seq` s `seq` pdStateTable `seq` filters `seq` (patMatchesIntStatePdPat0 0 pdStateTable w [(s,b)]) filters
+>     allbinders = allbinders' `seq` map snd allbinders'
 >   in map (collectPatMatchFromBinder w) $! allbinders
 
-> patMatchesIntStatePdPat0 :: Int -> PdPat0Table -> Word -> [(Binder,Int)] -> [[Int]] -> [(Binder,Int)]
+> patMatchesIntStatePdPat0 :: Int -> PdPat0Table -> Word -> [(Int,Binder)] -> [[Int]] -> [(Int,Binder)]
 > patMatchesIntStatePdPat0 cnt pdStateTable  w' ps fps' =
 >     case (S.uncons w', fps') of 
 >       (Nothing,_) -> ps 
 >       (Just (l,w),(fp:fps)) -> 
 >           let 
->               reachable_ps = ps `seq` fp `seq` [ p | p@(_,s) <- ps, elem s fp ]
+>               reachable_ps = ps `seq` fp `seq` nub2 [ p | p@(s,_) <- ps, elem s fp ]
 >               next_ps = l `seq` cnt `seq` pdStateTable `seq` reachable_ps `seq` concat [ lookupPdPat0 pdStateTable  p (l,cnt) | p <- reachable_ps ]
 >               cnt' = cnt + 1
 >          in cnt' `seq` pdStateTable `seq` w `seq` next_ps `seq` fps `seq` patMatchesIntStatePdPat0 cnt'  pdStateTable  w  next_ps fps
@@ -227,8 +227,8 @@ Some helper functions used in buildPdPat0Table
 >   let
 >     filters = sfinals `seq` pdStateTableRev `seq` rev_scanIntState sfinals pdStateTableRev $! w 
 >     s = 0 
->     allbinders' = b `seq` s `seq` pdStateTable `seq` filters `seq` (patMatchesIntStatePdPat0 0 pdStateTable w [(b,s)]) filters
->     allbinders =  map fst allbinders'
+>     allbinders' = b `seq` s `seq` pdStateTable `seq` filters `seq` (patMatchesIntStatePdPat0 0 pdStateTable w [(s,b)]) filters
+>     allbinders =  map snd allbinders'
 >   in map (collectPatMatchFromBinder w) allbinders
 
 

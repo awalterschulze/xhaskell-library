@@ -12,8 +12,8 @@
 
 
 > -- | A state monad in which we can assign number to groups and non-groups.
-> data TState = TState { ngi :: NGI
->                      , gi :: GI
+> data TState = TState { ngi :: NGI   -- ^ negative group index
+>                      , gi :: GI     -- ^ (positive) group index
 >                      , anchorStart :: Bool
 >                      , anchorEnd :: Bool } -- the state for trasslation
 >             deriving Show
