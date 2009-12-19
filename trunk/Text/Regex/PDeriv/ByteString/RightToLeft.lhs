@@ -31,7 +31,7 @@ is reached (AKA init state of the NFA) and the input word is fully consumed.
 
 > import Text.Regex.PDeriv.RE
 > import Text.Regex.PDeriv.Pretty (Pretty(..))
-> import Text.Regex.PDeriv.Common (Range, Letter, IsEmpty(..), my_hash, my_lookup, GFlag(..), IsGreedy(..), nub3)
+> import Text.Regex.PDeriv.Common (Range, Letter, IsEmpty(..), my_hash, my_lookup, GFlag(..), IsGreedy(..), nub3) 
 > import Text.Regex.PDeriv.IntPattern (Pat(..), pdPat, pdPat0, toBinder, Binder(..), strip)
 > import Text.Regex.PDeriv.Parse
 > import qualified Text.Regex.PDeriv.Dictionary as D (Dictionary(..), Key(..), insertNotOverwrite, lookupAll, empty, isIn, nub)
@@ -39,6 +39,7 @@ is reached (AKA init state of the NFA) and the input word is fully consumed.
 A word is a byte string.
 
 > type Word = S.ByteString
+
 
 ----------------------------
 -- (greedy) pattern matching
@@ -70,17 +71,17 @@ A function that builds the above table from the input pattern
 >         (all, delta, dictionary) = sig `seq` builder sig [] [] [init] init_dict 1   -- ^ all states and delta
 >         final = all `seq`  [ s | s <- all, isEmpty (strip s)]                   -- ^ the final states
 >         sfinal = final `seq` dictionary `seq` map (mapping dictionary) final
->         lists = delta `seq` dictionary `seq` [ (j, l, (i,f)) | (p,l,f,q) <- delta, 
+>         lists = delta `seq` dictionary `seq` [ (j, l, (i,f,flag)) | (p,l,f,q,flag) <- delta, 
 >                                                let i = mapping dictionary p  
 >                                                    j = mapping dictionary q
 >                                               {- , i `seq` j `seq` True -} ]
->         lists_with_pri =  lists `seq` zip lists [0..]
+>         -- lists_with_pri =  lists `seq` zip lists [0..]
 >         hash_table =  {-lists_with_pri `seq`-}
->                      foldl (\ dict ((q,x,pf@(p,f)),pri) -> 
+>                      foldl (\ dict (q,x,pf@(p,f,flag)) -> 
 >                                  let k = my_hash q (fst x)
 >                                  in k `seq` case IM.lookup k dict of 
->                                       Just pfs -> IM.update (\x -> Just (pfs ++ [(p,f,pri)])) k dict
->                                       Nothing -> IM.insert k [(p,f,pri)] dict) IM.empty lists_with_pri
+>                                       Just pfs -> IM.update (\x -> Just (pfs ++ [(p,f,flag)])) k dict
+>                                       Nothing -> IM.insert k [(p,f,flag)] dict) IM.empty lists
 >     in sfinal `seq` (hash_table, sfinal)
 
 Some helper functions used in buildPdPat0Table
@@ -101,22 +102,28 @@ Some helper functions used in buildPdPat0Table
 
 > builder :: [Letter] 
 >         -> [Pat] 
->         -> [(Pat,Letter, Int -> Binder -> Binder, Pat)] 
+>         -> [(Pat,Letter, Int -> Binder -> Binder, Pat, Int)] 
 >         -> [Pat] 
 >         -> D.Dictionary (Pat,Int)
 >         -> Int 
->         -> ([Pat], [(Pat, Letter, Int -> Binder -> Binder, Pat)], D.Dictionary (Pat,Int))
+>         -> ([Pat], [(Pat, Letter, Int -> Binder -> Binder, Pat, Int)], D.Dictionary (Pat,Int))
 > builder sig acc_states acc_delta curr_states dict max_id 
 >     | null curr_states  = (acc_states, acc_delta, dict)
 >     | otherwise = 
 >         let 
 >             all_sofar_states = acc_states ++ curr_states
->             new_delta = [ (s, l, f, s') | s <- curr_states, l <- sig, (s',f) <- pdPat0 s l]
->             new_states = all_sofar_states `seq` D.nub [ s' | (_,_,_,s') <- new_delta
+>             new_delta = [ (s, l, f, s', flag) | s <- curr_states, l <- sig, ((s',f),flag) <- pdPat0Flag s l]
+>             new_states = all_sofar_states `seq` D.nub [ s' | (_,_,_,s',_) <- new_delta
 >                                                       , not (s' `D.isIn` dict) ]
 >             acc_delta_next  = (acc_delta ++ new_delta)
 >             (dict',max_id') = new_states `seq` foldl (\(d,id) p -> (D.insertNotOverwrite (D.hash p) (p,id) d, id + 1) ) (dict,max_id) new_states
 >         in {- dict' `seq` max_id' `seq` -} builder sig all_sofar_states acc_delta_next new_states dict' max_id' 
+
+> pdPat0Flag p l = let qfs = pdPat0 p l
+>                  in case qfs of 
+>                       []        -> []
+>                       [ (q,f) ] -> [ ((q,f),0) ] 
+>                       qfs       -> zip qfs [1..]
 
 
 
@@ -136,15 +143,18 @@ Some helper functions used in buildPdPat0Table
 >     Just pairs -> pairs
 >     Nothing -> []
  
+> myuncons = S.uncons
 
-> patMatchesIntStatePdPat0Rev  :: Int -> PdPat0TableRev -> Word -> [(Int, Binder -> Binder, [Int])] -> [(Int, Binder -> Binder, [Int] )]
+> patMatchesIntStatePdPat0Rev  :: Int -> PdPat0TableRev -> Word -> [(Int, Binder -> Binder, Int)] -> [(Int, Binder -> Binder, Int )]
 > patMatchesIntStatePdPat0Rev  cnt pdStateTableRev w fs =
->     case S.uncons w of 
+>     case myuncons w of 
 >       Nothing -> fs
 >       Just (l,w') -> 
 >           let 
->               fs' = nub3 [ (j, f . (f' cnt), pri:pris) | (i, f, pris) <- fs, (j, f', pri) <- lookupPdPat0' pdStateTableRev i (l,cnt) ]
->           in patMatchesIntStatePdPat0Rev (cnt-1) pdStateTableRev w' fs'
+>               fs' = nub3 [ (j, f . (f' cnt), pri) | (i, f, _) <- fs, (j, f', pri) <- lookupPdPat0' pdStateTableRev i (l,cnt) ]
+>               cnt' = cnt - 1
+>           in fs' `seq` cnt' `seq` patMatchesIntStatePdPat0Rev cnt' pdStateTableRev w' fs'
+
 
 
 > patMatchIntStatePdPat0Rev :: Pat -> Word -> [Env]
@@ -154,14 +164,14 @@ Some helper functions used in buildPdPat0Table
 >         b = toBinder p
 >         l = S.length w
 >         w' = S.reverse w
->         fs = [ (i, id, []) | i <- fins ]
+>         fs = [ (i, id, 0) | i <- fins ]
 >         fs' =  w' `seq` fins `seq` l `seq` pdStateTableRev `seq` (patMatchesIntStatePdPat0Rev (l-1) pdStateTableRev w' fs)
->         fs'' = my_sort fs'
->         allbinders = b `seq` [ (f b) | (s,f,_) <- fs'', s == 0 ]
+>         -- fs'' = my_sort fs'
+>         allbinders = b `seq` [ (f b) | (s,f,_) <- fs', s == 0 ]
 >     in map (collectPatMatchFromBinder w) allbinders
 >                      
 
-> my_sort = sortBy (\ (_,_,ps) (_,_,ps') -> compare ps ps')
+> -- my_sort = sortBy (\ (_,_,ps) (_,_,ps') -> compare ps ps')
 
  pat = S.pack "^.*foo=([0-9]+).*bar=([0-9]+).*$"
 
@@ -186,10 +196,10 @@ Some helper functions used in buildPdPat0Table
 >     let
 >         l = S.length w
 >         w' = S.reverse w
->         fs = fins `seq` [ (i, id, []) | i <- fins ]
->         fs' = w' `seq` {- fins `seq` -} l `seq` pdStateTable `seq` (patMatchesIntStatePdPat0Rev (l-1) pdStateTable w' fs)
->         fs'' = fs' `seq` my_sort fs'
->         allbinders = b `seq` [ (f b) | (s,f,_) <- fs'', s == 0 ]
+>         fs = [ (i, id, i) | i <- fins ]
+>         fs' = w' `seq` fs `seq`  l `seq` pdStateTable `seq` (patMatchesIntStatePdPat0Rev (l-1) pdStateTable w' fs)
+>         -- fs'' = fs' `seq` my_sort fs'
+>         allbinders = fs' `seq` b `seq` [ (f b) | (s,f,_) <- fs', s == 0 ]
 >     in allbinders `seq` map (collectPatMatchFromBinder w) allbinders
 >       
 
