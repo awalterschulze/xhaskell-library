@@ -43,6 +43,7 @@ A word is a byte string.
 > type Word = S.ByteString
 
 
+
 version using the SNFA
 
 In addtion, we pass in a lookup table that maps
