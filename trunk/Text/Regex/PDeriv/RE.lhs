@@ -5,6 +5,7 @@
 > module Text.Regex.PDeriv.RE where
 
 > import Data.List (nub)
+> import Data.Char (chr)
 
 > import Text.Regex.PDeriv.Common (IsEmpty(..), IsGreedy(..), GFlag(..))
 > import Text.Regex.PDeriv.Dictionary (Key(..), primeL, primeR)
@@ -18,6 +19,8 @@
 >  | Choice RE RE GFlag -- ^ a choice exp 'r1 + r2'
 >  | Seq RE RE     -- ^ a pair exp '(r1,r2)'
 >  | Star RE GFlag -- ^ a kleene's star exp 'r*'
+>  | Any           -- ^ .
+>  | Not [Char]    -- ^ excluding characters e.g. [^abc]
 
 > -- | the eq instance
 > instance Eq RE where
@@ -26,6 +29,8 @@
 >     (==) (Choice r1 r2 g1) (Choice r3 r4 g2) = (g1 == g2) && (r2 == r4) && (r1 == r3) 
 >     (==) (Seq r1 r2) (Seq r3 r4) = (r1 == r3) && (r2 == r4)
 >     (==) (Star r1 g1) (Star r2 g2) = g1 == g2 && r1 == r2 
+>     (==) Any Any = True
+>     (==) (Not cs) (Not cs') = cs == cs'
 >     (==) _ _ = False
 
 
@@ -37,6 +42,8 @@
 >     show (Choice r1 r2 g) = "(" ++ show r1 ++ "|" ++ show r2 ++ ")" ++ show g
 >     show (Seq r1 r2) = "<" ++ show r1 ++ "," ++ show r2 ++ ">"
 >     show (Star r g) = show r ++ "*" ++ show g
+>     show Any = "."
+>     show (Not cs) = "[^" ++ cs ++ "]"
 
 > instance IsGreedy RE where
 >     isGreedy Phi = True
@@ -47,6 +54,8 @@
 >     isGreedy (Star r Greedy) = True
 >     isGreedy (Star r NotGreedy) = False
 >     isGreedy (L _) = True
+>     isGreedy Any = True
+>     isGreedy (Not _) = True
 
 > instance Key RE where
 >     hash Phi = [0]
@@ -66,6 +75,8 @@
 >                             in [ 7 + x * primeL ] -} [7]
 >     hash (L c) = {- let x = head (hash c)
 >                  in [ 8 + x * primeL ] -} [8]
+>     hash Any = [2]
+>     hash (Not _) = [9]
 
 
 
@@ -82,6 +93,8 @@
 >   isEmpty (Seq r1 r2) = (isEmpty r1) && (isEmpty r2)
 >   isEmpty (Star r g) = True
 >   isEmpty (L _) = False
+>   isEmpty Any = False
+>   isEmpty (Not _) = False
         
 
 > -- | function 'partDeriv' implements the partial derivative operations for regular expressions. We don't pay attention to the greediness flag here.
@@ -94,6 +107,10 @@
 > partDerivSub (L l') l 
 >     | l == l'   = [Empty]
 >     | otherwise = []
+> partDerivSub Any l = [Empty]
+> partDerivSub (Not cs) l 
+>     | l `elem` cs = []
+>     | otherwise = [Empty]
 > partDerivSub (Choice r1 r2 g) l = 
 >     let 
 >         s1 = partDerivSub r1 l 
@@ -121,6 +138,8 @@
 >             in s `seq` nub s
 
 > sigmaREsub (L l) = [l]
+> sigmaREsub Any = map chr [0 .. 255]
+> sigmaREsub (Not cs) = filter (\c -> not (c `elem` cs)) (map chr [0 .. 255])
 > sigmaREsub (Seq r1 r2) = (sigmaREsub r1) ++ (sigmaREsub r2) 
 > sigmaREsub (Choice r1 r2 g) = (sigmaREsub r1) ++ (sigmaREsub r2) 
 > sigmaREsub (Star r g) = sigmaREsub r

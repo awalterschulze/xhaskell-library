@@ -1,6 +1,7 @@
 > module Main where
 
-> import Text.Regex.PDeriv.ByteString.RightToLeft  -- AKA RightToLeft
+> import Text.Regex.Base.RegexLike(RegexOptions(..),RegexMaker(..),RegexContext(..))
+> import Text.Regex.Parsec.ByteString
 > import Data.Maybe
 > import qualified Data.ByteString.Char8 as S
 

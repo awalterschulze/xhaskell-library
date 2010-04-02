@@ -28,6 +28,7 @@ library
                          Text.Regex.PDeriv.ByteString.RightToLeft
                          Text.Regex.PDeriv.ByteString.LeftToRight
                          Text.Regex.PDeriv.ByteString.New
+                         Text.Regex.PDeriv.ByteString.Posix
                          Text.Regex.PDeriv.Common 
                          Text.Regex.PDeriv.Word
                          Text.Regex.PDeriv.ExtPattern
