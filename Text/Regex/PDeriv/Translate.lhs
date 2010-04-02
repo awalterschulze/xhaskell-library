@@ -82,9 +82,9 @@ getters and putters
 >                        hasAnchorE = anchorEnd state
 >                    in case (hasAnchorS, hasAnchorE) of
 >                       (True, True) -> pat -- PVar 0 [] pat 
->                       (True, False) -> PPair pat (PVar (-2) [] (PE (Star anychar Greedy)))
->                       (False, True) -> PPair (PVar (-1) [] (PE (Star anychar NotGreedy))) pat
->                       (False, False) -> PPair (PVar (-1) [] (PE (Star anychar NotGreedy))) (PPair pat (PVar (-2) [] (PE (Star anychar Greedy))))
+>                       (True, False) -> PPair pat (PVar (-2) [] (PE (Star Any Greedy)))
+>                       (False, True) -> PPair (PVar (-1) [] (PE (Star Any NotGreedy))) pat
+>                       (False, False) -> PPair (PVar (-1) [] (PE (Star Any NotGreedy))) (PPair pat (PVar (-2) [] (PE (Star Any Greedy))))
 
 > {-| 'trans' The top level translation scheme e ~> p
 >     There are two sub rules.
@@ -277,7 +277,8 @@ getters and putters
 >         -- | [ abc ] ~> a :: 'a'|'b'|'c' 
 >         -- we might not need this rule
 >       do { i <- getIncNGI
->          ; let r = char_list_to_re cs
+>          ; let -- r = char_list_to_re cs
+>                r = Any
 >                p = PVar i [] (PE r)
 >          ; return p
 >          }
@@ -285,7 +286,8 @@ getters and putters
 >         -- | [^ abc] ~> a :: \Sigma - 'a'|'b'|'c' 
 >         -- we might not need this rule
 >       do { i <- getIncNGI
->          ; let r = char_list_to_re (filter (\c -> not (c `elem` cs )) sigma)
+>          ; let -- r = char_list_to_re (filter (\c -> not (c `elem` cs )) sigma)
+>                r = Not cs
 >                p = PVar i [] (PE r)
 >          ; return p
 >          }
@@ -463,13 +465,15 @@ e ~>_r r
 >          }
 >     ; EDot -> 
 >         -- | . ~>_r \Sigma
->         return anychar
+>         -- return anychar
+>         return Any
 >     ; EAny cs ->
 >         -- | [ abc ] ~>_r 'a'|'b'|'c'
 >         return (char_list_to_re cs)
 >     ; ENoneOf cs ->
 >         -- | [^ abc] ~>_r \Sigma - 'a'|'b'|'c'
->         return $ char_list_to_re (filter (\c -> not (c `elem` cs )) sigma)
+>         -- return $ char_list_to_re (filter (\c -> not (c `elem` cs )) sigma)
+>         return (Not cs)
 >     ; EEscape c ->
 >         -- | \\c ~>_r c
 >         return $ L c
