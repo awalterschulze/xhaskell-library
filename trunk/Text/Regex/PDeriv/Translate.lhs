@@ -108,7 +108,6 @@ getters and putters
 > p_trans :: EPat -> State TState Pat
 > p_trans epat = 
 >     case epat of
->       -- ^ we might not need this here.
 >       -- () ~>_p ()
 >     { EEmpty ->
 >       do { return ( PE Empty )
