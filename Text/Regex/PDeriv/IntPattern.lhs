@@ -147,7 +147,7 @@
 >        we are in the position of 'pushing' another label l' into  (PPlus p' p*). 
 >     Shall we swap the order of the alternatives when p' is non-greedy?
 >     Why not? This seems harmless since we have already made some progress by pushing l into p*. -}
-> pdPat (PPlus p1 p2@(PStar _ _)) l -- ^ p2 must be pStar
+> pdPat (PPlus p1 p2@(PStar _ _)) l -- p2 must be pStar
 >     | isEmpty (strip p1) = 
 >         if isGreedy p1 
 >         then [ PPlus p3 p2 | p3  <- pdPat p1 l ] ++ [ PPlus p3 p2' | (PPlus p1' p2') <- pdPat p2 l, let p3 =  p1' `getBindingsFrom` p1 ]

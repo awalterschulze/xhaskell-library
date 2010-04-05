@@ -63,10 +63,10 @@ A function that builds the above table from the input pattern
 
 > buildPdPat0Table :: Pat -> (PdPat0TableRev, [Int])
 > buildPdPat0Table init = 
->     let sig = map (\x -> (x,0)) (sigmaRE (strip init))         -- ^ the sigma
->         init_dict = D.insertNotOverwrite (D.hash init) (init,0) D.empty         -- ^ add init into the initial dictionary
->         (all, delta, dictionary) = sig `seq` builder sig [] [] [init] init_dict 1   -- ^ all states and delta
->         final = all `seq`  [ s | s <- all, isEmpty (strip s)]                   -- ^ the final states
+>     let sig = map (\x -> (x,0)) (sigmaRE (strip init))         --  the sigma
+>         init_dict = D.insertNotOverwrite (D.hash init) (init,0) D.empty         --  add init into the initial dictionary
+>         (all, delta, dictionary) = sig `seq` builder sig [] [] [init] init_dict 1   --  all states and delta
+>         final = all `seq`  [ s | s <- all, isEmpty (strip s)]                   --  the final states
 >         sfinal = final `seq` dictionary `seq` map (mapping dictionary) final
 >         lists = delta `seq` dictionary `seq` [ (j, l, (i,f,flag,vs)) | (p,l,f,q,flag,vs) <- delta, 
 >                                                let i = mapping dictionary p  
