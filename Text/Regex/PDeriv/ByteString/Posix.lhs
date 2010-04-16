@@ -22,10 +22,11 @@ This algorithm implements the POSIX matching policy proceeds by scanning the inp
 > import Data.List 
 > import Data.Char (ord)
 > import GHC.Int
+> import GHC.Arr 
 > import qualified Data.IntMap as IM
 > import qualified Data.ByteString.Char8 as S
 
-> import Text.Regex.Base(RegexOptions(..))
+> import Text.Regex.Base(RegexOptions(..),RegexLike(..),MatchArray)
 
 
 > import Text.Regex.PDeriv.RE
@@ -176,12 +177,22 @@ A function that builds the above table from the input pattern
 >     in firstNonEQ os
 
 > compareRangeLocal :: [Range] -> [Range] -> Ordering
+> compareRangeLocal [] [] = EQ
+> compareRangeLocal (x:xs) (y:ys) 
+>   | (len x) > (len y) = GT
+>   | (len x) == (len y) = compareRangeLocal xs ys
+>   | otherwise = LT
+> compareRangeLocal _ _ = LT
+> {-
 > compareRangeLocal [] _ = LT
 > compareRangeLocal _ [] = GT
-> compareRangeLocal (x:_) (y:_) = 
+> compareRangeLocal (x:xs) (y:ys) 
+>   | (len x) < 1 && (len y) < 1 = 
+>       compareRangeLocal xs ys
 >    -- local, only the most recent is needed
->    compare (len x) (len y)
-
+>   | otherwise = 
+>       compare (len x) (len y)
+> -}
 
 > firstNonEQ :: [Ordering] -> Ordering
 > firstNonEQ [] = EQ
@@ -247,6 +258,8 @@ A function that builds the above table from the input pattern
 
 
 
+
+
 a function that updates the binder given an index (that is the pattern var)
 ASSUMPTION: the  var index in the pattern is linear. e.g. no ( 0 :: R1, (1 :: R2, 2 :: R3))
 
@@ -270,8 +283,8 @@ ASSUMPTION: the  var index in the pattern is linear. e.g. no ( 0 :: R1, (1 :: R2
 >     | otherwise = x:(updateBinderByIndexSub pos idx xs)
 
 
-> restartLocalBnd :: Pat -> Binder -> Binder
-> restartLocalBnd p b = 
+> resetLocalBnd :: Pat -> Binder -> Binder
+> resetLocalBnd p b = 
 >   let vs = getVars p
 >   in aux vs b 
 >     where aux :: [Int] -> Binder -> Binder
@@ -305,13 +318,13 @@ In case of p* we reset in the local binding.
 >            else [ (PVar x [] (PE (resToRE pds)), (\i -> (updateBinderByIndex x i)), [x] ) ]
 >     | otherwise = 
 >         let pfs = pdPat0 p (l,idx)
->         in [ (PVar x [] pd, (\i -> (updateBinderByIndex x i) . (f i) ), (x:vs) ) | (pd,f,vs) <- pfs ]
+>         in [ (PVar x [] pd, (\i -> (f i) . (updateBinderByIndex x i)  ), (x:vs) ) | (pd,f,vs) <- pfs ]
 > pdPat0 (PE r) (l,idx) = 
 >     let pds = partDeriv r l
 >     in if null pds then []
 >        else [ (PE (resToRE pds), ( \_ -> id ), [] ) ]
 > pdPat0 (PStar p g) l = let pfs = pdPat0 p l
->                            f'  = restartLocalBnd p -- restart all local binder in variables in p
+>                            f'  = resetLocalBnd p -- restart all local binder in variables in p
 >                        in [ (PPair p' (PStar p g), (\ i -> (f i) . f'), vs) | (p', f, vs) <- pfs ]
 >                      -- in [ (PPlus p' (PStar p), f) | (p', f) <- pfs ]
 > {-
@@ -335,7 +348,7 @@ In case of p* we reset in the local binding.
 
 > -- | The PDeriv backend spepcific 'Regex' type
 
-> newtype Regex = Regex (PdPat0TableRev, [Int], Binder) 
+> type Regex = (PdPat0TableRev, [Int], Binder) 
 
 
 -- todo: use the CompOption and ExecOption
@@ -349,19 +362,19 @@ In case of p* we reset in the local binding.
 >     Left err -> Left ("parseRegex for Text.Regex.PDeriv.ByteString failed:"++show err)
 >     Right pat -> Right (patToRegex pat compOpt execOpt)
 >     where 
->       patToRegex p _ _ = Regex (compilePat p)
+>       patToRegex p _ _ = (compilePat p)
 
 
 
 > execute :: Regex      -- ^ Compiled regular expression
 >        -> S.ByteString -- ^ ByteString to match against
 >        -> Either String (Maybe Env)
-> execute (Regex r) bs = Right (posixPatMatchCompiled r bs)
+> execute r bs = Right (posixPatMatchCompiled r bs)
 
 > regexec :: Regex      -- ^ Compiled regular expression
 >        -> S.ByteString -- ^ ByteString to match against
 >        -> Either String (Maybe (S.ByteString, S.ByteString, S.ByteString, [S.ByteString]))
-> regexec (Regex r) bs =
+> regexec r bs =
 >  case posixPatMatchCompiled r bs of
 >    Nothing -> Right (Nothing)
 >    Just env ->
@@ -417,4 +430,98 @@ In case of p* we reset in the local binding.
 >     defaultExecOpt =  ExecOption { captureGroups = True }
 >     setExecOpts e r = undefined
 >     getExecOpts r = undefined 
+
+> instance RegexLike Regex S.ByteString where 
+> -- matchAll :: regex -> source -> [MatchArray]
+>    matchAll = patMatchIntStateCompiledMatchArray
+> -- matchOnce :: regex -> source -> Maybe MatchArray
+>    matchOnce = posixPatMatchCompiledMatchArray
+> -- matchCount :: regex -> source -> Int
+> -- matchTest :: regex -> source -> Bool
+> -- matchAllText :: regex -> source -> [MatchText source]
+> -- matchOnceText :: regex -> source -> Maybe (source, MatchText source, source)
+>     
+
+
+
+> patMatchIntStateCompiledMatchArray ::  (PdPat0TableRev, [Int], Binder) -> Word -> [MatchArray]
+> patMatchIntStateCompiledMatchArray (pdStateTable, fins ,b)  w =
+>     let
+>         l = S.length w
+>         w' = S.reverse w
+>         fs = [ (i, b, i, []) | i <- fins ]
+>         fs' = w' `seq` fs `seq`  l `seq` pdStateTable `seq` (patMatchesIntStatePdPat0Rev (l-1) pdStateTable w' fs)
+>         -- fs'' = fs' `seq` my_sort fs'
+>         allbinders = fs' `seq` [  b' | (s,b',_, _) <- fs', s == 0 ]
+>     in allbinders `seq` map (binderToMatchArray l) allbinders
+
+> binderToMatchArray l b  = 
+>     let subPatB   = filter (\(x,_) -> x > 0) b
+>         mbPrefixB = lookup (-1) b
+>         mbSubfixB = lookup (-2) b
+>         mainB     = case (mbPrefixB, mbSubfixB) of
+>                       (Just [(_,x)], Just [(y,_)]) -> (x + 1, y - (x + 1))
+>                       (Just [(_,x)], _)            -> (x + 1, l - (x + 1))
+>                       (_, Just [(y,_)])            -> (0, y) 
+>                       (_, _)                       -> (0, l)
+>                       _                            -> error (show (mbPrefixB, mbSubfixB) )
+>         rs = map snd subPatB      
+>     in listToArray (mainB:(map (\r -> case r of { (_:_) -> fromRange (last r) ; [] -> (-1,0) } ) rs))
+>     where fromRange (b,e) = (b, e)
+
+> listToArray l = listArray (0,length l-1) l
+
+> posixPatMatchCompiledMatchArray :: (PdPat0TableRev, [Int], Binder) -> Word -> Maybe MatchArray
+> posixPatMatchCompiledMatchArray compiled w =
+>      first (patMatchIntStateCompiledMatchArray compiled w)
+>   where
+>     first (env:_) = return env
+>     first _ = Nothing
+
+
+> Right r0 = compile defaultCompOpt defaultExecOpt (S.pack "(ab|a)(bc|c)")
+> s0 = S.pack "abc"
+
+
+> Right r1 = compile defaultCompOpt defaultExecOpt (S.pack "^((a|ab)(baa|a))(ac|c)$")
+> s1 = S.pack "abaac"
+
+
+> Right r2 = compile defaultCompOpt defaultExecOpt (S.pack "^((a)|(aa))*$")
+> s2 = S.pack "aa"
+
+
+0: "(xy : ((x : a)|(y: aa)))*"
+
+1: "(xy : (x :(), y:a)) , (xy : ((x : a)|(y: aa)))*"
+
+
+0, a, 0, _,  [x,xy], !
+0, a, 1, _,  [y,xy], !
+1, a, 0, D,  [y,xy]
+
+
+[ (xy,[]), (x,[]), (y,[]) ]
+
+0 <-a 0   [ (xy,[a,!]), (x,[a,!]), (y,[]) ]
+  <-a 1   [ (xy,[a]), (x,[]),     (y,[a]) ]
+
+0 <-a 0   [ (xy,[a,!,a,!]), (x,[a,!,a,!]), (y,[]) ]
+1 <-a 0   [ (xy,[a,!,a]), (x,[]), (y,[a,!,a]) ]
+
+
+
+
+0, a, 0, _,  [x,xy], !
+0, a, 1, _,  [y,xy], !
+1, a, 0, D,  [y,xy], 
+
+
+[ (xy,[]), (x,[]), (y,[]) ]
+
+0 <-a 0   [ (xy,[a,!]), (x,[a,!]), (y,[]) ]
+  <-a 1   [ (xy,[a,!]), (x,[]),     (y,[a,!]) ]
+
+0 <-a 0   [ (xy,[a,!,a,!]), (x,[a,!,a,!]), (y,[]) ]
+1 <-a 0   [ (xy,[aa,!]), (x,[]), (y,[aa,!]) ]
 
