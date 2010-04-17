@@ -1,5 +1,5 @@
 Name:                   xhaskell-library
-Version:                0.0.4
+Version:                0.0.5
 License:                BSD3
 License-File:           LICENSE
 Copyright:              Copyright (c) 2009, Kenny Zhuo Ming Lu and Martin Sulzmann
@@ -40,5 +40,5 @@ library
                          Text.Regex.PDeriv.Dictionary
   Buildable:              True
   Extensions:             GADTs, MultiParamTypeClasses, FunctionalDependencies, FlexibleInstances, TypeSynonymInstances, FlexibleContexts
-  GHC-Options:            -O2 
+  GHC-Options:            
   GHC-Prof-Options:       -auto-all

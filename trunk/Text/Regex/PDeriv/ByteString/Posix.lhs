@@ -19,12 +19,17 @@ This algorithm implements the POSIX matching policy proceeds by scanning the inp
 >     , regexec
 >     ) where 
 
+
+> import System.IO.Unsafe
+
+
 > import Data.List 
 > import Data.Char (ord)
 > import GHC.Int
 > import GHC.Arr 
 > import qualified Data.IntMap as IM
 > import qualified Data.ByteString.Char8 as S
+
 
 > import Text.Regex.Base(RegexOptions(..),RegexLike(..),MatchArray)
 
@@ -36,6 +41,9 @@ This algorithm implements the POSIX matching policy proceeds by scanning the inp
 > import Text.Regex.PDeriv.Parse
 > import qualified Text.Regex.PDeriv.Dictionary as D (Dictionary(..), Key(..), insertNotOverwrite, lookupAll, empty, isIn, nub)
 
+
+
+> logger io = unsafePerformIO io
 
 
 A word is a byte string.
@@ -174,7 +182,10 @@ A function that builds the above table from the input pattern
 >     let rs  = map snd bs
 >         rs' = map snd bs'
 >         os  = map (\ (r,r') -> compareRangeLocal r r')  (zip rs rs')
->     in firstNonEQ os
+>     in {- logger (print (show os)) `seq` 
+>        logger (print (show bs)) `seq` 
+>        logger (print (show bs')) `seq` -}
+>        firstNonEQ os
 
 > compareRangeLocal :: [Range] -> [Range] -> Ordering
 > compareRangeLocal [] [] = EQ
@@ -182,7 +193,8 @@ A function that builds the above table from the input pattern
 >   | (len x) > (len y) = GT
 >   | (len x) == (len y) = compareRangeLocal xs ys
 >   | otherwise = LT
-> compareRangeLocal _ _ = LT
+> compareRangeLocal (_:_) [] = GT
+> compareRangeLocal [] (_:_) = LT
 > {-
 > compareRangeLocal [] _ = LT
 > compareRangeLocal _ [] = GT
@@ -324,8 +336,8 @@ In case of p* we reset in the local binding.
 >     in if null pds then []
 >        else [ (PE (resToRE pds), ( \_ -> id ), [] ) ]
 > pdPat0 (PStar p g) l = let pfs = pdPat0 p l
->                            f'  = resetLocalBnd p -- restart all local binder in variables in p
->                        in [ (PPair p' (PStar p g), (\ i -> (f i) . f'), vs) | (p', f, vs) <- pfs ]
+>                            reset  = resetLocalBnd p -- restart all local binder in variables in p
+>                        in [ (PPair p' (PStar p g), (\ i -> reset . (f i) ), vs) | (p', f, vs) <- pfs ]
 >                      -- in [ (PPlus p' (PStar p), f) | (p', f) <- pfs ]
 > {-
 > pdPat0 (PPlus p1 p2@(PStar _)) l  -- we drop this case since it make difference with the PPair
@@ -467,7 +479,7 @@ In case of p* we reset in the local binding.
 >                       _                            -> error (show (mbPrefixB, mbSubfixB) )
 >         rs = map snd subPatB      
 >     in listToArray (mainB:(map (\r -> case r of { (_:_) -> fromRange (last r) ; [] -> (-1,0) } ) rs))
->     where fromRange (b,e) = (b, e)
+>     where fromRange (b,e) = (b, e-b+1)
 
 > listToArray l = listArray (0,length l-1) l
 
@@ -490,6 +502,7 @@ In case of p* we reset in the local binding.
 > Right r2 = compile defaultCompOpt defaultExecOpt (S.pack "^((a)|(aa))*$")
 > s2 = S.pack "aa"
 
+We should reset after apply f
 
 0: "(xy : ((x : a)|(y: aa)))*"
 
