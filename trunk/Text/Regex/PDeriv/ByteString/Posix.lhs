@@ -66,7 +66,7 @@ we compile all the possible partial derivative operation into a table
 The table maps key to a set of target integer states and their corresponding
 binder update functions. 
 
-> type PdPat0TableRev = IM.IntMap [(Int, Int -> Binder -> Binder, Int, [Int])]
+> type PdPat0TableRev = IM.IntMap [(Int, Int -> Binder -> Binder, Int, Bool)]
 
 A function that builds the above table from the input pattern
 
@@ -77,17 +77,17 @@ A function that builds the above table from the input pattern
 >         (all, delta, dictionary) = sig `seq` builder sig [] [] [init] init_dict 1   --  all states and delta
 >         final = all `seq`  [ s | s <- all, isEmpty (strip s)]                   --  the final states
 >         sfinal = final `seq` dictionary `seq` map (mapping dictionary) final
->         lists = delta `seq` dictionary `seq` [ (j, l, (i,f,flag,vs)) | (p,l,f,q,flag,vs) <- delta, 
+>         lists = delta `seq` dictionary `seq` [ (j, l, (i,f,flag,gf)) | (p,l,f,q,flag,gf) <- delta, 
 >                                                let i = mapping dictionary p  
 >                                                    j = mapping dictionary q
 >                                               {- , i `seq` j `seq` True -} ]
 >         -- lists_with_pri =  lists `seq` zip lists [0..]
 >         hash_table =  {-lists_with_pri `seq`-}
->                      foldl (\ dict (q,x,pf@(p,f,flag,vs)) -> 
+>                      foldl (\ dict (q,x,pf@(p,f,flag,gf)) -> 
 >                                  let k = my_hash q (fst x)
 >                                  in k `seq` case IM.lookup k dict of 
->                                       Just pfs -> IM.update (\x -> Just (pfs ++ [(p,f,flag,vs)])) k dict
->                                       Nothing -> IM.insert k [(p,f,flag,vs)] dict) IM.empty lists
+>                                       Just pfs -> IM.update (\x -> Just (pfs ++ [(p,f,flag,gf)])) k dict
+>                                       Nothing -> IM.insert k [(p,f,flag,gf)] dict) IM.empty lists
 >     in sfinal `seq` (hash_table, sfinal)
 
 
@@ -104,17 +104,17 @@ A function that builds the above table from the input pattern
 
 > builder :: [Letter] 
 >         -> [Pat] 
->         -> [(Pat,Letter, Int -> Binder -> Binder, Pat, Int, [Int])] 
+>         -> [(Pat,Letter, Int -> Binder -> Binder, Pat, Int, Bool)] 
 >         -> [Pat] 
 >         -> D.Dictionary (Pat,Int)
 >         -> Int 
->         -> ([Pat], [(Pat, Letter, Int -> Binder -> Binder, Pat, Int, [Int])], D.Dictionary (Pat,Int))
+>         -> ([Pat], [(Pat, Letter, Int -> Binder -> Binder, Pat, Int, Bool)], D.Dictionary (Pat,Int))
 > builder sig acc_states acc_delta curr_states dict max_id 
 >     | null curr_states  = (acc_states, acc_delta, dict)
 >     | otherwise = 
 >         let 
 >             all_sofar_states = acc_states ++ curr_states
->             new_delta = [ (s, l, f, s', flag, vs ) | s <- curr_states, l <- sig, ((s',f,vs),flag) <- pdPat0Flag s l]
+>             new_delta = [ (s, l, f, s', flag, gf ) | s <- curr_states, l <- sig, ((s',f,gf),flag) <- pdPat0Flag s l]
 >             new_states = all_sofar_states `seq` D.nub [ s' | (_,_,_,s',_,_) <- new_delta
 >                                                       , not (s' `D.isIn` dict) ]
 >             acc_delta_next  = (acc_delta ++ new_delta)
@@ -125,7 +125,7 @@ A function that builds the above table from the input pattern
 > pdPat0Flag p l = let qfs = pdPat0 p l
 >                  in case qfs of 
 >                       []        -> []
->                       [ (q,f,vs) ] -> [ ((q,f,vs),0) ] 
+>                       [ (q,f,gf) ] -> [ ((q,f,gf),0) ] 
 >                       qfs       -> zip qfs [1..]
 
 
@@ -138,25 +138,25 @@ A function that builds the above table from the input pattern
 
 > -- | algorithm right to left scanning single pass
 > -- | the "partial derivative" operations among integer states + binders
-> lookupPdPat0' :: PdPat0TableRev -> (Int,Binder) -> Letter -> [(Int,Binder,Int,[Int])]
+> lookupPdPat0' :: PdPat0TableRev -> (Int,Binder) -> Letter -> [(Int,Binder,Int,Bool)]
 > lookupPdPat0' hash_table (i,b) (l,x) = 
 >     case IM.lookup (my_hash i l) hash_table of
->     Just quatripples -> [ (j, op x b, p, vs) | (j, op, p, vs) <- quatripples ]
+>     Just quatripples -> [ (j, op x b, p, gf) | (j, op, p, gf) <- quatripples ]
 >     Nothing -> []
  
 
-> patMatchesIntStatePdPat0Rev  :: Int -> PdPat0TableRev -> Word -> [(Int, Binder, Int, [Int])] -> [(Int, Binder, Int,[Int] )]
+> patMatchesIntStatePdPat0Rev  :: Int -> PdPat0TableRev -> Word -> [(Int, Binder, Int, Bool)] -> [(Int, Binder, Int, Bool )]
 > patMatchesIntStatePdPat0Rev  cnt pdStateTableRev w fs =
 >     case S.uncons w of 
 >       Nothing -> fs
 >       Just (l,w') -> 
 >           let 
->               fs' = nubPosix [ (j, b', pri, vs ) | (i, b, _, _) <- fs, (j, b', pri, vs) <- lookupPdPat0' pdStateTableRev (i,b) (l,cnt) ]
+>               fs' = nubPosix [ (j, b', pri, gf) | (i, b, _, _) <- fs, (j, b', pri, gf) <- lookupPdPat0' pdStateTableRev (i,b) (l,cnt) ]
 >               cnt' = cnt - 1
 >           in fs' `seq` cnt' `seq` patMatchesIntStatePdPat0Rev cnt' pdStateTableRev w' fs'
 
 
-> nubPosix :: [(Int,Binder,Int,[Int])] -> [(Int,Binder,Int,[Int])]
+> nubPosix :: [(Int,Binder,Int,Bool)] -> [(Int,Binder,Int,Bool)]
 > nubPosix [] = []
 > nubPosix [x] = [x]                                            -- optimization
 > nubPosix ls = 
@@ -168,9 +168,12 @@ A function that builds the above table from the input pattern
 >     let xs' = nubPosixSub xs
 >     in (x:xs')
 > nubPosixSub a@(x@(k,b,n,vs):xs) = 
->     let cmp (k1,b1,_,v1) (k2,b2,_,v2) = compareBinderLocal b1 b2 --  compare (b1,v1) (b2,v2)
->         ys = [ (k',b',n',vs') | (k',b',n',vs') <- a, k == k' ]
->         zs = [ (k',b',n',vs') | (k',b',n',vs') <- a, not (k == k') ]
+>     let cmp (k1,b1,_,gf1) (k2,b2,_,gf2) = 
+>             case compare gf1 gf2 of
+>               EQ -> compareBinderLocal b1 b2 --  compare (b1,v1) (b2,v2)
+>               ordering -> ordering 
+>         ys = [ (k',b',n',gf') | (k',b',n',gf') <- a, k == k' ]
+>         zs = [ (k',b',n',gf') | (k',b',n',gf') <- a, not (k == k') ]
 >         y = maximumBy cmp ys
 >     in if x == y 
 >        then y:(nubPosixSub zs)
@@ -222,7 +225,7 @@ A function that builds the above table from the input pattern
 >         b = toBinder p
 >         l = S.length w
 >         w' = S.reverse w
->         fs = [ (i, b, 0, []) | i <- fins ]
+>         fs = [ (i, b, 0, True) | i <- fins ]
 >         fs' =  w' `seq` fins `seq` l `seq` pdStateTableRev `seq` (patMatchesIntStatePdPat0Rev (l-1) pdStateTableRev w' fs)
 >         -- fs'' = my_sort fs'
 >         allbinders = [ b | (s,b,_, _) <- fs', s == 0 ]
@@ -254,7 +257,7 @@ A function that builds the above table from the input pattern
 >     let
 >         l = S.length w
 >         w' = S.reverse w
->         fs = [ (i, b, i, []) | i <- fins ]
+>         fs = [ (i, b, i, True) | i <- fins ]
 >         fs' = w' `seq` fs `seq`  l `seq` pdStateTable `seq` (patMatchesIntStatePdPat0Rev (l-1) pdStateTable w' fs)
 >         -- fs'' = fs' `seq` my_sort fs'
 >         allbinders = fs' `seq` [  b' | (s,b',_, _) <- fs', s == 0 ]
@@ -322,22 +325,22 @@ retrieve all variables appearing in p
 An specialized version of pdPat0 specially designed for the Posix match
 In case of p* we reset in the local binding.
 
-> pdPat0 :: Pat -> Letter -> [(Pat, Int -> Binder -> Binder, [Int] )]
+> pdPat0 :: Pat -> Letter -> [(Pat, Int -> Binder -> Binder, Bool )]
 > pdPat0 (PVar x w p) (l,idx) 
 >     | null (toBinder p) = -- p is not nested
 >         let pds = partDeriv (strip p) l
 >         in if null pds then []
->            else [ (PVar x [] (PE (resToRE pds)), (\i -> (updateBinderByIndex x i)), [x] ) ]
+>            else [ (PVar x [] (PE (resToRE pds)), (\i -> (updateBinderByIndex x i)), True ) ]
 >     | otherwise = 
 >         let pfs = pdPat0 p (l,idx)
->         in [ (PVar x [] pd, (\i -> (f i) . (updateBinderByIndex x i)  ), (x:vs) ) | (pd,f,vs) <- pfs ]
+>         in [ (PVar x [] pd, (\i -> (f i) . (updateBinderByIndex x i)  ), True ) | (pd,f, _) <- pfs ]
 > pdPat0 (PE r) (l,idx) = 
 >     let pds = partDeriv r l
 >     in if null pds then []
->        else [ (PE (resToRE pds), ( \_ -> id ), [] ) ]
+>        else [ (PE (resToRE pds), ( \_ -> id ), True ) ]
 > pdPat0 (PStar p g) l = let pfs = pdPat0 p l
 >                            reset  = resetLocalBnd p -- restart all local binder in variables in p
->                        in [ (PPair p' (PStar p g), (\ i -> reset . (f i) ), vs) | (p', f, vs) <- pfs ]
+>                        in [ (PPair p' (PStar p g), (\ i -> reset . (f i) ), True) | (p', f, _) <- pfs ]
 >                      -- in [ (PPlus p' (PStar p), f) | (p', f) <- pfs ]
 > {-
 > pdPat0 (PPlus p1 p2@(PStar _)) l  -- we drop this case since it make difference with the PPair
@@ -347,9 +350,9 @@ In case of p* we reset in the local binding.
 > pdPat0 (PPair p1 p2) l = 
 >     if (isEmpty (strip p1))
 >     then if isGreedy p1
->          then nub3 ([ (PPair p1' p2, f, vs) | (p1' , f, vs) <- pdPat0 p1 l ] ++ (pdPat0 p2 l))
->          else nub3 ((pdPat0 p2 l) ++ [ (PPair p1' p2, f, vs) | (p1' , f, vs) <- pdPat0 p1 l ])
->     else [ (PPair p1' p2, f, vs) | (p1',f,vs) <- pdPat0 p1 l ]
+>          then nub3 ([ (PPair p1' p2, f, True) | (p1' , f, _) <- pdPat0 p1 l ] ++ (pdPat0 p2 l))
+>          else nub3 ((pdPat0 p2 l) ++ [ (PPair p1' p2, f, False) | (p1' , f, _) <- pdPat0 p1 l ])
+>     else [ (PPair p1' p2, f, True) | (p1',f, _) <- pdPat0 p1 l ]
 > pdPat0 (PChoice p1 p2 _) l = 
 >     nub3 ((pdPat0 p1 l) ++ (pdPat0 p2 l)) -- nub doesn't seem to be essential
 
@@ -461,11 +464,12 @@ In case of p* we reset in the local binding.
 >     let
 >         l = S.length w
 >         w' = S.reverse w
->         fs = [ (i, b, i, []) | i <- fins ]
+>         fs = [ (i, b, i, True) | i <- fins ]
 >         fs' = w' `seq` fs `seq`  l `seq` pdStateTable `seq` (patMatchesIntStatePdPat0Rev (l-1) pdStateTable w' fs)
 >         -- fs'' = fs' `seq` my_sort fs'
 >         allbinders = fs' `seq` [  b' | (s,b',_, _) <- fs', s == 0 ]
->     in allbinders `seq` map (binderToMatchArray l) allbinders
+>         io = logger (print $ show allbinders)
+>     in io `seq` allbinders `seq` map (binderToMatchArray l) allbinders
 
 > binderToMatchArray l b  = 
 >     let subPatB   = filter (\(x,_) -> x > 0) b
@@ -502,6 +506,7 @@ In case of p* we reset in the local binding.
 > Right r2 = compile defaultCompOpt defaultExecOpt (S.pack "^((a)|(aa))*$")
 > s2 = S.pack "aa"
 
+
 We should reset after apply f
 
 0: "(xy : ((x : a)|(y: aa)))*"
@@ -537,4 +542,37 @@ We should reset after apply f
 
 0 <-a 0   [ (xy,[a,!,a,!]), (x,[a,!,a,!]), (y,[]) ]
 1 <-a 0   [ (xy,[aa,!]), (x,[]), (y,[aa,!]) ]
+
+> Right up5 =  compile defaultCompOpt defaultExecOpt (S.pack "a($)")
+> s5 = S.pack "aa"
+
+Searched text: "aa"
+Regex pattern: "a($)"
+Expected output: "(1,2)(2,2)"
+Actual result  : "(1,2)(-1,-1)" 
+
+($) same as () ??
+Not match (-1,-1) -> (2,2)
+
+
+> Right up7 =  compile defaultCompOpt defaultExecOpt (S.pack "(..)*(...)*")
+> s7 = S.pack "a"
+
+Searched text: "a"
+Regex pattern: "(..)*(...)*"
+Expected output: "(0,0)(-1,-1)(-1,-1)"
+Actual result  : "(1,1)(-1,-1)(-1,-1)"
+
+because it is an unanchored match, "a" is matched by the -1 sub group?? 
+but in the expected output, it should be matched by the -2 sub group??
+
+
+> Right up8 =  compile defaultCompOpt defaultExecOpt (S.pack "(..)*(...)*")
+> s8 = S.pack "abcd"
+
+
+> Right up64 =  compile defaultCompOpt defaultExecOpt (S.pack "a*")
+> s64 = S.pack "aaa"
+
+> Right r64 =  compile defaultCompOpt defaultExecOpt (S.pack "^(a*?)(a*)(a*?)$")
 
