@@ -1,3 +1,4 @@
+> {-# LANGUAGE FlexibleContexts #-}
 > module Text.Regex.PDeriv.Parse (parsePat) where
 
 > {- By Kenny Zhuo Ming Lu and Martin Sulzmann, 2009. BSD3 -}
@@ -12,6 +13,7 @@ This parser is largely adapted from Text.Regex.TDFA.ReadRegex
 >                                      string, noneOf, digit, char, anyChar)
 > import Control.Monad(liftM, when, guard)
 > import Data.List (sort,nub)
+> import qualified Data.ByteString.Char8 as S
 
 > import Text.Regex.PDeriv.ExtPattern (EPat(..))
 > import Text.Regex.PDeriv.IntPattern (Pat(..))
