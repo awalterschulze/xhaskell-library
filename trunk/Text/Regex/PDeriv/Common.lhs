@@ -5,8 +5,10 @@
 > import qualified Data.IntMap as IM
 > import Data.List (nubBy)
 
-> type Range  = (Int,Int)      -- ^ (sub)words represent by range
-> type Letter = (Char,Int)     -- ^ a character and its index (position)
+> -- | (sub)words represent by range
+> type Range  = (Int,Int)      
+> -- | a character and its index (position)
+> type Letter = (Char,Int)     
 
 > class IsEmpty a where
 >     isEmpty :: a -> Bool

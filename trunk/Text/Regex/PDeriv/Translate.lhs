@@ -112,7 +112,7 @@ getters and putters
 >     { EEmpty ->
 >       do { return ( PE Empty )
 >          }
->       {-|
+>       {-
 >         e ~> p
 >         -----------------
 >         ( e ) ~>_p x :: p
@@ -123,7 +123,7 @@ getters and putters
 >          ; return ( PVar i [] p)
 >          }
 >     ; EOr es -> 
->         {-|
+>         {-
 >           e1 ~> p1  e2 ~> p2
 >           -------------------
 >             e1|e2 ~>_p p1|p2
@@ -136,7 +136,7 @@ getters and putters
 >            }
 >          }
 >     ; EConcat es ->
->         {-| 
+>         {- 
 >            e1 ~> p1  e2 ~> p2
 >            ---------------------
 >              (e1,e2) ~>_p (p1,p2)
@@ -149,7 +149,7 @@ getters and putters
 >              }
 >            }
 >     ; EOpt e b ->
->       {-| 
+>       {- 
 >          todo : not sure whether this makes sense
 >            e ~> p
 >          -------------------
@@ -161,7 +161,7 @@ getters and putters
 >          ; return (PChoice p (PE Empty) g)
 >          }
 >     ; EPlus e b ->
->       {-| 
+>       {- 
 >            e ~> p
 >          -------------------
 >            p+ ~>_p (p,p*)
@@ -172,7 +172,7 @@ getters and putters
 >          ; return (PPair p (PStar p g))
 >          }
 >     ; EStar e b -> 
->       {-| 
+>       {- 
 >            e ~> p
 >          -------------------
 >            e*~>_p p*
@@ -183,7 +183,7 @@ getters and putters
 >          ; return (PStar p g)
 >          }
 >     ; EBound e low (Just high) b ->
->         {-| we could have relax this rule to e ~> p
+>         {- we could have relax this rule to e ~> p
 >             e ~>_r r  
 >             r1 = take l (repeat r)
 >             r2 = take (h-l) (repeat r?)
@@ -214,7 +214,7 @@ getters and putters
 >          ; return p
 >          }
 >     ; EBound e low Nothing b ->
->         {-|
+>         {-
 >             e ~>_r r  
 >             r1 = take l (repeat r)
 >             r' = (r1,r*)
@@ -265,7 +265,7 @@ getters and putters
 >          ; return p
 >          }
 >     ; EDot -> 
->         -- |  . ~> a :: \Sigma 
+>         --  . ~> a :: \Sigma 
 >         -- we might not need this rule
 >       do { i <- getIncNGI
 >          ; let r = anychar
@@ -273,7 +273,7 @@ getters and putters
 >          ; return p
 >         }
 >     ; EAny cs ->
->         -- | [ abc ] ~> a :: 'a'|'b'|'c' 
+>         -- [ abc ] ~> a :: 'a'|'b'|'c' 
 >         -- we might not need this rule
 >       do { i <- getIncNGI
 >          ; let -- r = char_list_to_re cs
@@ -282,7 +282,7 @@ getters and putters
 >          ; return p
 >          }
 >     ; ENoneOf cs ->
->         -- | [^ abc] ~> a :: \Sigma - 'a'|'b'|'c' 
+>         -- [^ abc] ~> a :: \Sigma - 'a'|'b'|'c' 
 >         -- we might not need this rule
 >       do { i <- getIncNGI
 >          ; let -- r = char_list_to_re (filter (\c -> not (c `elem` cs )) sigma)
@@ -291,14 +291,14 @@ getters and putters
 >          ; return p
 >          }
 >     ; EEscape c ->
->         -- | \\c ~> a :: L c 
+>         -- \\c ~> a :: L c 
 >         -- we might not need this rule
 >       do { i <- getIncNGI 
 >          ; let p = PVar i [] (PE (L c))
 >          ; return p 
 >          }
 >     ; EChar c ->
->         -- | c ~> a :: L c
+>         -- c ~> a :: L c
 >         -- we might not need this rule
 >       do { i <- getIncNGI
 >          ; let p = PVar i [] (PE (L c))
@@ -326,19 +326,19 @@ e ~>_r r
 > r_trans e = 
 >     case e of 
 >     { EEmpty -> 
->       {-|
+>       {-
 >         () ~>_r ()
 >        -}
 >       return Empty
 >     ; EGroup e ->
->       {-| we might not need this rule
+>       {- we might not need this rule
 >          e ~> r
 >         ----------
 >         (e) ~> r
 >        -}
 >       r_trans e
 >     ; EOr es ->
->       {-|
+>       {-
 >         e1 ~>_r r1 e2 ~>_r r2
 >       -------------------
 >         e1|e2 ~>_r r1|r2
@@ -350,7 +350,7 @@ e ~>_r r
 >            }
 >          }
 >     ; EConcat es ->
->       {-|
+>       {-
 >         e1 ~>_r r1  e2 ~>_r r2
 >        ----------------------
 >         (e1,e2) ~>_r (r1,r2)
@@ -362,7 +362,7 @@ e ~>_r r
 >            }
 >          }
 >     ; EOpt e b -> 
->       {-|
+>       {-
 >           e ~>_r r
 >         -----------
 >           e? ~>_r r?
@@ -373,7 +373,7 @@ e ~>_r r
 >          ; return (Choice r Empty g)
 >          }
 >     ; EPlus e b -> 
->       {-|
+>       {-
 >         e ~>_r r
 >         ---------------
 >           e+ ~>_r (r,r*)
@@ -384,7 +384,7 @@ e ~>_r r
 >          ; return (Seq r (Star r g))
 >          }
 >     ; EStar e b -> 
->       {-|
+>       {-
 >         e ~>_r r
 >         ----------------
 >           e* ~>_r r*
@@ -395,7 +395,7 @@ e ~>_r r
 >          ; return (Star r g)
 >          }
 >     ; EBound e low (Just high) b ->
->       {-|
+>       {-
 >         e ~>_r r
 >         r1 = take l (repeat r)
 >         r2 = take (h-l) (repeat r?)
@@ -424,7 +424,7 @@ e ~>_r r
 >          ; return r3
 >          }
 >     ; EBound e low Nothing b -> 
->         {-|
+>         {-
 >             e ~>_r r  
 >             r1 = take l (repeat r)
 >             r' = (r1,r*)
@@ -463,21 +463,21 @@ e ~>_r r
 >          ; return Empty
 >          }
 >     ; EDot -> 
->         -- | . ~>_r \Sigma
+>         --  . ~>_r \Sigma
 >         -- return anychar
 >         return Any
 >     ; EAny cs ->
->         -- | [ abc ] ~>_r 'a'|'b'|'c'
+>         --  [ abc ] ~>_r 'a'|'b'|'c'
 >         return (char_list_to_re cs)
 >     ; ENoneOf cs ->
->         -- | [^ abc] ~>_r \Sigma - 'a'|'b'|'c'
+>         --  [^ abc] ~>_r \Sigma - 'a'|'b'|'c'
 >         -- return $ char_list_to_re (filter (\c -> not (c `elem` cs )) sigma)
 >         return (Not cs)
 >     ; EEscape c ->
->         -- | \\c ~>_r c
+>         --  \\c ~>_r c
 >         return $ L c
 >     ; EChar c ->
->         -- | c ~>_r c
+>         --  c ~>_r c
 >         return $ L c
 >     }
 >           
