@@ -32,7 +32,7 @@ is reached (AKA init state of the NFA) and the input word is fully consumed.
 > import Text.Regex.PDeriv.RE
 > import Text.Regex.PDeriv.Pretty (Pretty(..))
 > import Text.Regex.PDeriv.Common (Range, Letter, IsEmpty(..), my_hash, my_lookup, GFlag(..), IsGreedy(..), nub3) 
-> import Text.Regex.PDeriv.IntPattern (Pat(..), pdPat, pdPat0, toBinder, Binder(..), strip)
+> import Text.Regex.PDeriv.IntPattern (Pat(..), pdPat, pdPat0, toBinder, Binder(..), strip, listifyBinder)
 > import Text.Regex.PDeriv.Parse
 > import qualified Text.Regex.PDeriv.Dictionary as D (Dictionary(..), Key(..), insertNotOverwrite, lookupAll, empty, isIn, nub)
 
@@ -131,28 +131,28 @@ Some helper functions used in buildPdPat0Table
 
 > -- | Function 'collectPatMatchFromBinder' collects match results from binder 
 > collectPatMatchFromBinder :: Word -> Binder -> Env
-> collectPatMatchFromBinder w [] = []
-> collectPatMatchFromBinder w ((x,[]):xs) = (x,S.empty):(collectPatMatchFromBinder w xs)
-> collectPatMatchFromBinder w ((x,rs):xs) = (x,foldl S.append S.empty $ map (rg_collect w) (reverse rs)):(collectPatMatchFromBinder w xs)
+> collectPatMatchFromBinder w b = collectPatMatchFromBinder_ w (listifyBinder b)
+> collectPatMatchFromBinder_ w [] = []
+> collectPatMatchFromBinder_ w ((x,[]):xs) = (x,S.empty):(collectPatMatchFromBinder_ w xs)
+> collectPatMatchFromBinder_ w ((x,rs):xs) = (x,foldl S.append S.empty $ map (rg_collect w) (reverse rs)):(collectPatMatchFromBinder_ w xs)
 
 > -- | algorithm right to left scanning single pass
 > -- | the "partial derivative" operations among integer states + binders
 > lookupPdPat0' :: PdPat0TableRev -> Int -> Letter -> [(Int,Int -> Binder -> Binder,Int)]
 > lookupPdPat0' hash_table i (l,x) = 
->     case IM.lookup (my_hash i l) hash_table of
+>     case {-# SCC "lookup" #-} IM.lookup k hash_table of
 >     Just pairs -> pairs
 >     Nothing -> []
- 
-> myuncons = S.uncons
+>     where k = my_hash i l
 
 > patMatchesIntStatePdPat0Rev  :: Int -> PdPat0TableRev -> Word -> [(Int, Binder -> Binder, Int)] -> [(Int, Binder -> Binder, Int )]
 > patMatchesIntStatePdPat0Rev  cnt pdStateTableRev w fs =
->     case myuncons w of 
+>     case {-# SCC "myuncons" #-} S.uncons w of 
 >       Nothing -> fs
 >       Just (l,w') -> 
 >           let 
->               fs' = nub3 [ (j, f . (f' cnt), pri) | (i, f, _) <- fs, (j, f', pri) <- lookupPdPat0' pdStateTableRev i (l,cnt) ]
->               cnt' = cnt - 1
+>               fs' = nub3 [ g `seq` (j, g, pri) | (i, f, _) <- fs, (j, f', pri) <- lookupPdPat0' pdStateTableRev i (l,cnt), let g = f . (f' cnt) ]
+>               cnt' = {-# SCC "cnt_minus_one" #-} cnt - 1
 >           in fs' `seq` cnt' `seq` patMatchesIntStatePdPat0Rev cnt' pdStateTableRev w' fs'
 
 

@@ -138,8 +138,8 @@
 >             in s `seq` nub s
 
 > sigmaREsub (L l) = [l]
-> sigmaREsub Any = map chr [0 .. 255]
-> sigmaREsub (Not cs) = filter (\c -> not (c `elem` cs)) (map chr [0 .. 255])
+> sigmaREsub Any = map chr [32 .. 127]
+> sigmaREsub (Not cs) = filter (\c -> not (c `elem` cs)) (map chr [32 .. 127])
 > sigmaREsub (Seq r1 r2) = (sigmaREsub r1) ++ (sigmaREsub r2) 
 > sigmaREsub (Choice r1 r2 g) = (sigmaREsub r1) ++ (sigmaREsub r2) 
 > sigmaREsub (Star r g) = sigmaREsub r

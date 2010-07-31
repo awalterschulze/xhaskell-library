@@ -34,7 +34,7 @@ failures states as long as we cannot find them in the sets.
 > import Text.Regex.PDeriv.RE
 > import Text.Regex.PDeriv.Pretty (Pretty(..))
 > import Text.Regex.PDeriv.Common (Range, Letter, IsEmpty(..), my_hash, my_lookup, GFlag(..), IsGreedy(..), nub2)
-> import Text.Regex.PDeriv.IntPattern (Pat(..), pdPat, pdPat0, toBinder, Binder(..), strip)
+> import Text.Regex.PDeriv.IntPattern (Pat(..), pdPat, pdPat0, toBinder, Binder(..), strip, listifyBinder)
 > import Text.Regex.PDeriv.Parse
 > import qualified Text.Regex.PDeriv.Dictionary as D (Dictionary(..), Key(..), insertNotOverwrite, lookupAll, empty, isIn, nub)
 
@@ -177,9 +177,10 @@ Some helper functions used in buildPdPat0Table
 
 > -- | function 'collectPatMatchFromBinder' collects match results from binders
 > collectPatMatchFromBinder :: Word -> Binder -> Env
-> collectPatMatchFromBinder w [] = []
-> collectPatMatchFromBinder w ((x,[]):xs) = (x,S.empty):(collectPatMatchFromBinder w xs)
-> collectPatMatchFromBinder w ((x,rs):xs) = (x,foldl S.append S.empty $ map (rg_collect w) (reverse rs)):(collectPatMatchFromBinder w xs)
+> collectPatMatchFromBinder w b = collectPatMatchFromBinder_ w (listifyBinder b)
+> collectPatMatchFromBinder_ w [] = []
+> collectPatMatchFromBinder_ w ((x,[]):xs) = (x,S.empty):(collectPatMatchFromBinder_ w xs)
+> collectPatMatchFromBinder_ w ((x,rs):xs) = (x,foldl S.append S.empty $ map (rg_collect w) (reverse rs)):(collectPatMatchFromBinder_ w xs)
 
 
 > -- | 'patMAtchIntStatePdPat0' implements the two passes pattern matching algo

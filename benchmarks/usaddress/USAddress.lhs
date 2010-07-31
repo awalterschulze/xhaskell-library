@@ -12,14 +12,15 @@
 >                                  (Right (Just (_,_,_,l))) -> Just l
 >                                  _ -> Nothing
 
+
 > main :: IO ()
-> main = do { f <- S.readFile "/tmp/addr.txt"
+> main = do { f <- {-# SCC "myread" #-} S.readFile "/tmp/addr.txt"
 >           ; let ls = S.lines f
 >                 compiled = case compile defaultCompOpt defaultExecOpt usPat of
 >                            Left _ -> error " compilation failed . "
 >                            Right r -> r
 >                 results = (map (parseUSAddrCompiled compiled) ls)
->           ; putStrLn $ show results
+>           ; {-# SCC "mywrite" #-}  putStrLn  $ show results
 >           -- ; putStrLn $ show (length (filter isJust results))
 >           }
 

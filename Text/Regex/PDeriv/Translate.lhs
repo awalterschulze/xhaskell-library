@@ -268,7 +268,7 @@ getters and putters
 >         --  . ~> a :: \Sigma 
 >         -- we might not need this rule
 >       do { i <- getIncNGI
->          ; let r = anychar
+>          ; let r = Any
 >                p = PVar i [] (PE r)
 >          ; return p
 >         }
@@ -276,8 +276,8 @@ getters and putters
 >         -- [ abc ] ~> a :: 'a'|'b'|'c' 
 >         -- we might not need this rule
 >       do { i <- getIncNGI
->          ; let -- r = char_list_to_re cs
->                r = Any
+>          ; let r = char_list_to_re cs
+>                -- r = Any
 >                p = PVar i [] (PE r)
 >          ; return p
 >          }
