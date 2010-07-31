@@ -16,12 +16,12 @@
 >                    _ -> Nothing
 
 > main :: IO ()
-> main = do { f <- S.readFile "/tmp/access.log"
+> main = do { f <- {-# SCC "read" #-} S.readFile "/tmp/access.log"
 >           ; let ls = S.lines f
 >                 compiled = case compile defaultCompOpt defaultExecOpt pat of
 >                            Left _ -> error " compilation failed . "
 >                            Right r -> r
 >                 results = (map (parse compiled) ls)
->           ; putStrLn $ show results
+>           ; results `seq` {-# SCC "write" #-} putStrLn $ show results
 >           ; putStrLn $ show (length (filter isJust results))
 >           }

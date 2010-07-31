@@ -9,7 +9,7 @@ an emptiable pattern and the input word is fully consumed.
 >     FlexibleInstances, TypeSynonymInstances, FlexibleContexts #-} 
 
 
-> module Text.Regex.PDeriv.ByteString.LeftToRight
+> module Text.Regex.PDeriv.ByteString.LeftToRightD
 >     ( Regex
 >     , CompOption(..)
 >     , ExecOption(..)
@@ -37,7 +37,7 @@ an emptiable pattern and the input word is fully consumed.
 > import Text.Regex.PDeriv.Common (Range, Letter, IsEmpty(..), my_hash, my_lookup, GFlag(..), IsEmpty(..), nub2)
 > import Text.Regex.PDeriv.IntPattern (Pat(..), pdPat, pdPat0, toBinder, Binder(..), strip, listifyBinder)
 > import Text.Regex.PDeriv.Parse
-> import qualified Text.Regex.PDeriv.Dictionary as D (Dictionary(..), Key(..), insertNotOverwrite, lookupAll, empty, isIn, nub)
+> import qualified Text.Regex.PDeriv.Dictionary as D (Dictionary(..), Key(..), insert, insertNotOverwrite, lookupAll, empty, isIn, nub)
 
 
 
@@ -68,10 +68,10 @@ A function that builds the above table from the pattern
 
 > buildPdPat0Table :: Pat ->  (PdPat0Table, [Int])
 > buildPdPat0Table init = 
->     let sig = map (\x -> (x,0)) (sigmaRE (strip init))         -- the sigma
->         init_dict = D.insertNotOverwrite (D.hash init) (init,0) D.empty         -- add init into the initial dictionary
+>     let sig = map (\x -> (x,0)) (sigmaRE (strip init))                              -- the sigma
+>         init_dict = D.insertNotOverwrite (D.hash init) (init,0) D.empty             -- add init into the initial dictionary
 >         (all, delta, dictionary) = sig `seq` builder sig [] [] [init] init_dict 1   -- all states and delta
->         final = all `seq`  [ s | s <- all, isEmpty (strip s)]                   -- the final states
+>         final = all `seq`  [ s | s <- all, isEmpty (strip s)]                       -- the final states
 >         sfinal = final `seq` dictionary `seq` map (mapping dictionary) final
 >         lists = [ (i,l,jfs) | 
 >                   (p,l, qfs) <- delta, 
@@ -85,9 +85,10 @@ A function that builds the above table from the pattern
 >                                       Nothing -> IM.insert k q dict) IM.empty lists
 >     in (hash_table, sfinal)
 
-Some helper functions used in buildPdPat0Table
 
-> myLookup = lookup
+                               
+
+Some helper functions used in buildPdPat0Table
 
 > mapping :: D.Dictionary (Pat,Int) -> Pat -> Int
 > mapping dictionary x = let candidates = D.lookupAll (D.hash x) dictionary
@@ -95,7 +96,7 @@ Some helper functions used in buildPdPat0Table
 >                           case candidates of
 >                             [(_,i)] -> i
 >                             _ -> 
->                                 case myLookup x candidates of
+>                                 case lookup x candidates of
 >                                 (Just i) -> i
 >                                 Nothing -> error ("this should not happen. looking up " ++ (pretty x) ++ " from " ++ (show candidates) )
 
@@ -120,46 +121,142 @@ Some helper functions used in buildPdPat0Table
 
 
 
+
+Optimizaing lookup pdpat table.
+build a hash table that map [ Int ]  states + label  to [ Int ] states where 
+the resulting [ Int ] is already nubbed and join, hence there is no need to run the pairing and nubbing on the fly.
+This would cause some compile time overhead and trading space with time.
+
+Technical problem, how to hash a [ Int ] in Haskell?
+
+> type NFAStates = [ Int ]
+
+> type DPat0Table = IM.IntMap ( Int       -- ^ the next DFA state
+>                             , NFAStates -- ^ the next NFA states
+>                             , IM.IntMap [Int -> Binder -> Binder] -- ^ the transition function : position -> current_binders -> next_binders
+>                             ) -- deterministic: one output state and one update function
+
+> buildDPat0Table :: Pat -> (DPat0Table, [Int])
+> buildDPat0Table init = 
+>     let sig = map (\x -> (x,0)) (sigmaRE (strip init))                              -- the sigma
+>         -- building the NFA
+>         init_dict = D.insertNotOverwrite (D.hash init) (init,0) D.empty             -- add init into the initial dictionary
+>         (all, delta, dictionary) = sig `seq` builder sig [] [] [init] init_dict 1   -- all states and delta
+>         final = all `seq`  [ s | s <- all, isEmpty (strip s)]                       -- the final states
+>         sfinal = final `seq` dictionary `seq` map (mapping dictionary) final
+>         lists = dictionary `seq` 
+>                 [ (i,l,jfs) | 
+>                   (p,l, qfs) <- delta, 
+>                   let i   = mapping dictionary p
+>                       jfs = map (\(q,f) -> (mapping dictionary q, f)) qfs
+>                   ]
+>         hash_table = lists `seq` 
+>                      foldl' (\ dict (p,x,q) -> 
+>                                  let k = my_hash p (fst x)
+>                                  in case IM.lookup k dict of 
+>                                       Just ps -> error "Found a duplicate key in the PdPat0Table, this should not happen."
+>                                       Nothing -> IM.insert k q dict) IM.empty lists
+>         -- building the DFA
+>         init'       = [ 0 ]
+>         init_dict'  = init' `seq` D.insert (D.hash init') (init',0) D.empty
+>         (all', delta', dictionary') = hash_table `seq` init' `seq` init_dict' `seq`
+>                                       builder' hash_table sig [] [] [init'] init_dict' 1
+>         lists'      = delta' `seq` dictionary' `seq` 
+>                       map (\(c,l,n,f) -> 
+>                                let i = c `seq` mapping' dictionary' c
+>                                    j = n `seq` mapping' dictionary' n
+>                                in f `seq` i `seq` j `seq` n `seq` l `seq` (i, l, j, n, f)) delta'
+>         hash_table' = lists' `seq` 
+>                       foldl' (\ dict' (i, l, j, n, f) ->
+>                              let k = my_hash i (fst l)
+>                              in case IM.lookup k dict' of
+>                                   Just ps -> error "Found a duplicate key."
+>                                   Nothing -> IM.insert k (j,n,f) dict') IM.empty lists'
+>     in hash_table' `seq` sfinal `seq` (hash_table',sfinal)
+
+
+> mapping' :: D.Dictionary (NFAStates,Int) -> NFAStates -> Int
+> mapping' dictionary x = let candidates = dictionary `seq` D.lookupAll (D.hash x) dictionary
+>                         in candidates `seq` 
+>                            case candidates of
+>                                     [(_,i)] -> i
+>                                     _ -> 
+>                                         case lookup x candidates of
+>                                         (Just i) -> i
+>                                         Nothing -> error ("this should not happen. looking up " ++ (show x) ++ " from " ++ (show candidates) )
+
+
+> builder' :: PdPat0Table
+>          -> [ Letter ]
+>          -> [ NFAStates ] -- all so far
+>          -> [ ( NFAStates, Letter, NFAStates, IM.IntMap [Int -> Binder -> Binder] ) ]  -- delta
+>          -> [ NFAStates ]  -- maybe new states
+>          -> D.Dictionary (NFAStates, Int) -- mapping dictionary
+>          -> Int -- max key
+>          -> ( [ NFAStates ] -- all states
+>             , [ (NFAStates, Letter, NFAStates, IM.IntMap [Int -> Binder -> Binder] ) ]  -- all delta : book keeping: IntMap, mapping input nfa state to op?
+>             , D.Dictionary (NFAStates, Int) )
+> builder' pdStateTable sig acc_states acc_delta [] dict max_id = (acc_states, acc_delta, dict)
+> builder' pdStateTable sig acc_states acc_delta curr_states dict max_id =
+>     let all_sofar_states = acc_states `seq` curr_states `seq` 
+>                            acc_states ++ curr_states 
+>         insert k f im    = k `seq` im `seq` 
+>                            case IM.lookup k im of 
+>                            { Just fs -> IM.update (\_ -> Just (fs ++ [ f ])) k im 
+>                            ; Nothing -> IM.insert k [f] im
+>                            }
+> {-
+>         new_delta        = [ next_state `seq` f_dict `seq` (curr_state, l, next_state, f_dict) |
+>                              curr_state <- curr_states
+>                            , l <- sig
+>                            , let pairs = curr_state `seq` l `seq` nub2 (concatMap ( \n_state -> lookupPdPat1 pdStateTable n_state l ) curr_state) 
+>                            , not (null pairs)
+>                            , let (next_state, curr_state_and_f_pairs) = pairs `seq` unzip pairs
+>                                  f_dict                               = curr_state_and_f_pairs `seq` foldl' (\im (l,f) -> insert l f im) IM.empty curr_state_and_f_pairs
+>                            ] 
+>  -}
+>         new_delta        = pdStateTable `seq` curr_states `seq`
+>                            concatMap ( \curr_state -> 
+>                                          map (\l -> 
+>                                                   let
+>                                                       pairs = curr_state `seq` l `seq` nub2 (concatMap' ( \n_state -> lookupPdPat1 pdStateTable n_state l ) curr_state) 
+>                                                       (next_state, curr_state_and_f_pairs) = pairs `seq` unzip pairs
+>                                                       f_dict                               = curr_state_and_f_pairs `seq` 
+>                                                                                              foldl' (\im (l,f) -> insert l f im) IM.empty curr_state_and_f_pairs
+>                                                       in next_state `seq` f_dict `seq` (curr_state, l, next_state, f_dict) ) sig
+>                                        )  curr_states
+>         new_states       = new_delta `seq` 
+>                            D.nub [ next_state | 
+>                                    (_,_,next_state,_) <- new_delta
+>                                  , not (next_state `D.isIn` dict) ]
+>         acc_delta_next   = acc_delta `seq` new_delta `seq` 
+>                            (acc_delta ++ new_delta)
+>         (dict',max_id')  = new_states `seq` dict `seq` max_id `seq`  
+>                            foldl' (\(d,id) p -> (D.insert (D.hash p) (p,id) d, id + 1)) (dict,max_id) new_states 
+>     in all_sofar_states `seq` new_states `seq` dict' `seq` max_id'`seq` sig `seq` acc_delta_next `seq`
+>            builder' pdStateTable sig all_sofar_states acc_delta_next new_states dict' max_id'
+
+
+
+
+
+
 the "partial derivative" operations among integer states + binders
 
-> lookupPdPat0 :: PdPat0Table -> (Int,Binder) -> Letter -> [(Int,Binder)]
-> lookupPdPat0 hash_table (i,binder) (l,x) = 
->     -- i `seq` 
->     -- l `seq` 
->     -- k `seq` 
->     let  k =  {-# SCC "hash" #-} (my_hash i l)
->     in k `seq`
->     hash_table `seq`
->       case {-# SCC "lookup" #-} IM.lookup k hash_table of
->       { Just pairs -> 
->             binder `seq` -- x `seq`
->         -- {-# SCC "pair" #-} [ binder' `seq`  (j, binder' ) | (j, op) <- {-# SCC "pair_pair" #-} pairs, let binder' = {-# SCC "pair_binder" #-} op x binder ]
->         {-# SCC "pair" #-} map (\ (j,op) -> let binder' = {-# SCC "pair_binder" #-} op x binder  
->                                             in binder' `seq`  
->                                 {-# SCC "pair_pair" #-} (j, binder' ) ) pairs  
->       ; Nothing -> [] 
->       }
 
-
-> lookupPdPat0' :: PdPat0Table -> (Int, [Binder -> Binder]) -> Letter -> [(Int,[Binder -> Binder])]
-> lookupPdPat0' hash_table (i,fs) (l,x) = 
->     -- i `seq` 
->     -- l `seq` 
->     -- k `seq` 
->     let  k =  {-# SCC "hash" #-} (my_hash i l)
->     in k `seq`
->     hash_table `seq`
->       case {-# SCC "lookup" #-} IM.lookup k hash_table of
->       { Just pairs -> 
->             let io = unsafePerformIO (print (length pairs))
->             in
->             x `seq` -- io `seq`
->         {-# SCC "pair" #-} map (\ (j,op) -> let f = {-# SCC "op_x" #-} op x 
->                                                 fs' = {-# SCC "fs'" #-} {- f `seq` fs `seq` -} f:fs
->                                             in {- fs' `seq` -} (j, fs')) pairs 
->       ; Nothing -> [] 
->       }
-
+> lookupPdPat1 :: PdPat0Table -> Int -> Letter -> [ ( Int -- next state
+>                                                   , ( Int -- current state : used as key to build the hash table
+>                                                     , Int -> Binder -> Binder)) ]
+> lookupPdPat1 hash_table i (l,_) = 
+>     let k = my_hash i l
+>     in 
+>       k `seq` 
+>       case IM.lookup k hash_table of 
+>                { Just pairs -> 
+>                      map (\ (j,op) -> 
+>                               (j, (i, op))) pairs 
+>                ; Nothing -> [] 
+>                }
 
 collection function for binder 
 
@@ -176,39 +273,38 @@ collection function for binder
 >           f w (r:_) = rg_collect w r
 > -}
 
-> patMatchesIntStatePdPat0 :: Int -> PdPat0Table -> Word -> [(Int,Binder)] -> [(Int,Binder)]
-> patMatchesIntStatePdPat0 cnt pdStateTable  w' eps =
->     case {-# SCC "uncons" #-} S.uncons w' of 
->       Nothing -> eps 
->       Just (l,w) -> 
->           let 
->               eps_ = -- l `seq` cnt `seq` 
->                      {-# SCC "listcompred"  #-} concatMap (\ep -> lookupPdPat0 pdStateTable ep (l,cnt)) eps
->               eps' = -- eps_ `seq`
->                      nub2 eps_
->               cnt' = cnt + 1
->           in   cnt' `seq` {- pdStateTable `seq` -} w `seq` 
->                eps' `seq` 
->                patMatchesIntStatePdPat0 cnt'  pdStateTable  w eps'
 
+orginally the type was Int -> DPat0Table -> Word -> (Int,[(Int,Binder)]) -> (Int, [(Int,Binder)])
+where the first Int is the DFA state, but this leads to a mysterious Stack overflow fiasco, (which I don't have time to investigate why
+or able to come out a smallish example)
 
-> patMatchesIntStatePdPat0' :: Int -> PdPat0Table -> Word -> [(Int,[Binder -> Binder])] -> [(Int,[Binder -> Binder])]
-> patMatchesIntStatePdPat0' cnt pdStateTable  w' eps =
+> patMatchesIntStatePdPat1 :: Int -> DPat0Table -> Word -> [(Int,Int,Binder)] -> [(Int,Int,Binder)]
+> patMatchesIntStatePdPat1 cnt dStateTable  w' [] = []
+> patMatchesIntStatePdPat1 cnt dStateTable  w' currNfaStateBinders =
 >     case {-# SCC "uncons" #-} S.uncons w' of 
->       Nothing -> eps 
+>       Nothing -> currNfaStateBinders
 >       Just (l,w) -> 
->           let 
->               eps_ = l `seq` cnt `seq` 
->                      {-# SCC "listcompred" #-} concatMap (\ep -> lookupPdPat0' pdStateTable ep (l,cnt)) eps
->               eps' = -- eps_ `seq`
->                      nub2 eps_
->               cnt' = cnt + 1
->           in   cnt' `seq` {- pdStateTable `seq` -} w `seq` 
->                eps' `seq` 
->                patMatchesIntStatePdPat0' cnt' pdStateTable  w eps'
+>           let ((i,_,_):_) = currNfaStateBinders
+>               k           = {-# SCC "k" #-} l `seq` i `seq` my_hash i l
+>           in
+>           case k `seq` IM.lookup k dStateTable of
+>             { Nothing -> [] -- key miss means some letter exists in w but not in r.    
+>             ; Just (j,next_nfaStates,fDict) -> 
+>                 let -- 
+>                     binders = {-# SCC "binders" #-} -- io `seq`
+>                               currNfaStateBinders `seq` fDict `seq`  
+>                               concatMap' ( \ (_,m,b) -> case IM.lookup m fDict of 
+>                                                        Nothing -> []
+>                                                        Just fs -> b `seq` map (\f -> f cnt b) fs ) currNfaStateBinders 
+>                     nextNfaStateBinders = {-# SCC "nextNfaStateBinders" #-} -- io `seq` 
+>                                           binders `seq` next_nfaStates `seq` j `seq`
+>                                           map (\(x,y) -> (j,x,y)) (zip next_nfaStates binders)
+>                     cnt' = {-# SCC "cnt" #-} cnt `seq` cnt + 1
+>                 in nextNfaStateBinders `seq` cnt' `seq` w `seq`
+>                        patMatchesIntStatePdPat1 cnt' dStateTable w  nextNfaStateBinders } 
 
 > concatMap' :: (a -> [b]) -> [a] -> [b]
-> concatMap' f x = foldr' ( \ b a -> (++) a (f b) ) [] x
+> concatMap' f x = foldr' ( \ b a -> (++) a $! (f b) ) [] x
 
 > foldr' :: (a -> b -> b) -> b -> [a] -> b
 > foldr' f b [] = b
@@ -216,76 +312,54 @@ collection function for binder
 >                     in b' `seq` 
 >                        foldr' f b' as
 
-> {- 
-> fast_nub :: [(Binder,Int)] -> [(Binder,Int)]
-> fast_nub eps = 
->     let im = IM.empty 
->     in fast_nub' im eps
->     where fast_nub' :: IM.IntMap () -> [(Binder,Int)] -> [(Binder,Int)]
->           fast_nub' im [] = []
->           fast_nub' im ((e,p):eps) = 
->               let mb_r = IM.lookup p im
->               in case mb_r of
->                  Just _ ->  fast_nub' im eps
->                  Nothing -> let im' = IM.insert p () im
->                             in (e,p):(fast_nub' im' eps)
-> -}
 
 
-> patMatchIntStatePdPat0 :: Pat -> Word -> [Env]
-> patMatchIntStatePdPat0 p w = 
+> patMatchIntStatePdPat1 :: Pat -> Word -> [Env]
+> patMatchIntStatePdPat1 p w = 
 >   let
->     (pdStateTable,sfinal) = buildPdPat0Table p
+>     (dStateTable,sfinal) = buildDPat0Table p
 >     s = 0
 >     b = toBinder p
->     allbinders' = b `seq` s `seq` pdStateTable `seq` (patMatchesIntStatePdPat0 0 pdStateTable w [(s,b)])
->     allbinders = allbinders' `seq` map snd (filter (\(i,_) -> i `elem` sfinal) allbinders' )
+>     allbinders' = b `seq` s `seq` dStateTable `seq` (patMatchesIntStatePdPat1 0 dStateTable w [(0,s,b)])
+>     -- allbinders' = b `seq` s `seq` dStateTable `seq` (patMatchesIntStatePdPat1 0 dStateTable w [(s,b)]) 
+>     allbinders = allbinders' `seq` map third (filter (\(_,i,_) -> i `elem` sfinal) allbinders' )
 >     -- all_func' = s `seq` pdStateTable `seq` (patMatchesIntStatePdPat0' 0 pdStateTable w [(s,[])])
 >     -- all_func = all_func' `seq` map snd (filter (\(i,_) -> i `elem` sfinal) all_func' ) 
 >   in map (collectPatMatchFromBinder w) $! allbinders
 >      -- map (\fs -> collectPatMatchFromBinder w (applyAll (reverse fs) b)) $! all_func 
 
 
-
-
-> greedyPatMatch :: Pat -> Word -> Maybe Env
-> greedyPatMatch p w =
->      first (patMatchIntStatePdPat0 p w)
+> greedyPatMatch' :: Pat -> Word -> Maybe Env
+> greedyPatMatch' p w =
+>      first (patMatchIntStatePdPat1 p w)
 >   where
 >     first (env:_) = return env
 >     first _ = Nothing
 
+
 Compilation
 
 
-> compilePat :: Pat -> (PdPat0Table, [Int], Binder)
-> compilePat p =  (pdStateTable, sfinal, b)
+> compilePat :: Pat -> (DPat0Table, [Int], Binder)
+> compilePat p =  (dStateTable, sfinal, b)
 >     where 
->           (pdStateTable,sfinal) = buildPdPat0Table p
+>           (dStateTable,sfinal) = buildDPat0Table p
 >           b = toBinder p
 
-> patMatchIntStateCompiled :: (PdPat0Table, [Int], Binder) -> Word -> [Env]
-> patMatchIntStateCompiled (pdStateTable,sfinal,b) w = 
+> patMatchIntStateCompiled :: (DPat0Table, [Int], Binder) -> Word -> [Env]
+> patMatchIntStateCompiled (dStateTable,sfinal,b) w = 
 >   let
 >     s = 0 
->     -- allbinders' = b `seq` s `seq` pdStateTable `seq` (patMatchesIntStatePdPat0 0 pdStateTable w [(s,b)]) 
->     -- allbinders = allbinders' `seq` map snd (filter (\(i,_) -> i `elem` sfinal) allbinders' )
->     all_func' = s `seq` pdStateTable `seq` (patMatchesIntStatePdPat0' 0 pdStateTable w [(s,[])])
->     all_func = all_func' `seq` map snd (filter (\(i,_) -> i `elem` sfinal) all_func' ) 
->   in -- map (collectPatMatchFromBinder w) allbinders
->      all_func `seq` 
->      map (\fs -> let fs' = reverse fs
->                  in fs' `seq` collectPatMatchFromBinder w (applyAll fs' b)) all_func 
+>     e = [(0,0,b)]
+>     allbinders' = e `seq` b `seq` s `seq` dStateTable `seq` (patMatchesIntStatePdPat1 0 dStateTable w e ) 
+>     -- allbinders' = b `seq` s `seq` dStateTable `seq` (patMatchesIntStatePdPat1 0 dStateTable w [(s,b)])
+>     allbinders = allbinders' `seq` map third (filter (\(_,i,_) -> i `elem` sfinal) allbinders' )
+>   in allbinders `seq` map (collectPatMatchFromBinder w) allbinders
 
-> applyAll :: [ Binder -> Binder ] -> Binder -> Binder
-> -- applyAll _  b = b -- fixme
-> applyAll [] b = b
-> applyAll (f:fs) b = let b' = f b
->                     in b' `seq` applyAll fs b'
-              
+> third :: (a,b,c) -> c
+> third (_,_,x) = x
 
-
-> greedyPatMatchCompiled :: (PdPat0Table, [Int], Binder) -> Word -> Maybe Env
+> greedyPatMatchCompiled :: (DPat0Table, [Int], Binder) -> Word -> Maybe Env
 > greedyPatMatchCompiled compiled w =
 >      first (patMatchIntStateCompiled compiled w)
 >   where
@@ -298,7 +372,7 @@ Compilation
 
 > -- | The PDeriv backend spepcific 'Regex' type
 
-> newtype Regex = Regex (PdPat0Table, [Int], Binder) 
+> newtype Regex = Regex (DPat0Table, [Int], Binder) 
 
 
 -- todo: use the CompOption and ExecOption
@@ -429,7 +503,7 @@ pattern = ( x :: (A|B)*?, (y :: (B*,A*)))
 
 pattern = <(x :: (0|...|9)+?)*, (y :: (0|...|9)+?)*, (z :: (0|...|9)+?)*>
 
-> digits_re = foldl' (\x y -> Choice x y Greedy) (L '0') (map L "12345789")
+> digits_re = foldl' (\x y -> Choice x y Greedy) (L '0') (map L "123456789")
 
 > p11 = PPair (PStar (PVar 1 [] (PE (Seq digits_re (Star digits_re Greedy)))) Greedy) (PPair (PStar (PVar 2 [] (PE (Seq digits_re (Star digits_re Greedy)))) Greedy) (PPair (PStar (PVar 3 [] (PE (Seq digits_re (Star digits_re Greedy)))) Greedy) (PStar (PVar 4 [] (PE (Seq digits_re (Star digits_re Greedy)))) Greedy)))
 

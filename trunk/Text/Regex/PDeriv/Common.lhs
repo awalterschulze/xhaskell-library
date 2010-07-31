@@ -1,8 +1,19 @@
 > -- | this module contains the defs of common data types and type classes
-> module Text.Regex.PDeriv.Common where
+> module Text.Regex.PDeriv.Common 
+>     ( Range
+>     , Letter
+>     , IsEmpty (..)
+>     , my_hash
+>     , my_lookup
+>     , GFlag (..)
+>     , IsGreedy (..)
+>     , nub2
+>     , nub3
+>     ) where
 
 > import Data.Char (ord)
 > import qualified Data.IntMap as IM
+> import qualified Data.BitSet as BS
 > import Data.List (nubBy)
 
 > -- | (sub)words represent by range
@@ -38,70 +49,77 @@ the lookup function
 >     isGreedy :: a -> Bool
 
 
-> -- | remove duplications in a list of pairs whose, using the first components as key.
+> -- | remove duplications in a list of pairs, using the first components as key.
 > nub2 :: [(Int,a)] -> [(Int,a)]
 > nub2 [] = []
 > nub2 [x] = [x]                                        -- optimization
-> nub2 ls@[x,y] = nubBy (\ (x,_) (y,_) -> x == y) ls  -- optimization
+> -- nub2 ls@[x,y] = nubBy (\ (x,_) (y,_) -> x == y) ls    -- optimization
 > nub2 ls = nub2sub IM.empty ls
+>           -- nub2aux BS.empty ls []
+
+
 > nub2sub im [] = []
 > nub2sub im (x@(k,_):xs) = 
->     case IM.lookup k im of
->     Just _  -> nub2sub im xs
->     Nothing -> let im' = IM.insert k () im 
->                in x:(nub2sub im' xs)
+> --    im `seq` k `seq` 
+>            case IM.lookup k im of
+>            Just _  -> xs `seq` nub2sub im xs
+>            Nothing -> let im' = IM.insert k () im 
+>                       in im' `seq` xs `seq` x:(nub2sub im' xs)
+
+> {-
+> nub2sub im [] = []
+> nub2sub im (x@(k,_):xs) = 
+> --    im `seq` k `seq` 
+>            if not (IM.notMember k im)
+>            then xs `seq` nub2sub im xs
+>            else let im' = IM.insert k () im 
+>                 in im' `seq` xs `seq` x:(nub2sub im' xs)
+> -}
+
+> nub2aux bs [] acc = reverse acc 
+> nub2aux bs (x@(k,_):xs) acc = 
+>     case bs `seq` k `seq` BS.member k bs of 
+>       True  -> xs `seq` nub2aux bs xs acc
+>       False -> let bs' = BS.insert k bs
+>                in bs' `seq` xs `seq` (nub2aux bs' xs (x:acc))
 
 
 > nub3 :: [(Int,a,Int)] -> [(Int,a,Int)]
 > nub3 [] = []
 > nub3 [x] = [x]                                            -- optimization
-> nub3 ls = 
->     let (_,ls') = nub3sub IM.empty ls
->     in ls'
+> nub3 ls = nub3subsimple IM.empty ls
 
+     let (_,ls') = nub3sub IM.empty ls
+     in ls'
+
+> nub3subsimple :: IM.IntMap () -> [(Int,a,Int)] -> [(Int,a,Int)]
+> nub3subsimple im [] = []
+> nub3subsimple im [ x ] = [ x ]
+> nub3subsimple im (x@(k,f,0):xs) = x:(nub3subsimple im xs)
+> nub3subsimple im (x@(k,f,1):xs) = let im' = IM.insert k () im
+>                                   in x:(nub3subsimple im' xs)
+> nub3subsimple im (x@(k,f,n):xs) = case IM.lookup k im of 
+>                                   Just _ -> nub3subsimple im xs
+>                                   Nothing -> let im' = IM.insert k () im
+>                                              in im' `seq` xs `seq` x:(nub3subsimple im' xs)
+
+> nub3sub :: IM.IntMap () -> [(Int,a,Int)] -> (IM.IntMap (), [(Int,a,Int)])
+> {-# INLINE nub3sub #-}
 > nub3sub im [] = (im,[])
+> nub3sub im [(k,f,0)] = (im, [(k,f,0)]) -- 0 means deterministic
+> nub3sub im [(k,f,1)] = let im' = IM.insert k () im  -- 1 means greedy
+>                        in (im', [(k,f,1)])
 > nub3sub im (x@(k,f,0):xs) = let (im',xs') = nub3sub im xs
 >                             in (im',x:xs')
 > nub3sub im (x@(k,f,1):xs) = let im' = IM.insert k () im
 >                                 (im'', xs') = nub3sub im' xs
 >                             in (im'', x:xs')
 > nub3sub im (x@(k,f,n):xs) = case IM.lookup k im of 
->                               Just _ -> let (im', xs') = nub3sub im xs
->                                         in (im', xs')
+>                               Just _ -> nub3sub im xs
 >                               Nothing -> let (im', xs') = nub3sub im xs
 >                                          in case IM.lookup k im' of 
 >                                               Just _ -> (im', xs')
 >                                               Nothing -> (im', x:xs')
-
-> {-
-> nub3sub im [] = ([],im)
-> nub3sub im (x@(k,f,i):xs) = 
->     case IM.lookup k im of
->     Nothing -> let im' = IM.insert k (f,i) im  -- we have not seen this key before, insert it into the table
->                    (ks,im'') = nub3sub im' xs
->                in (k:ks, im'')
->     Just (g,j) | j <= i -> nub3sub im xs       -- we found a duplicate, let's compare the labels.
->                | otherwise -> 
->                    let im' = IM.update (\y -> Just (f,i)) k im
->                    in nub3sub im' xs
-> -} 
-> {-
-> -- | remove duplications in a list of tripple, using the first components as key.
-> -- nub3 = nubBy (\ (x,_,_) (y,_,_) -> x == y)
-> nub3 :: [(Int,a,b)] -> [(Int,a,b)]
-> nub3 [] = []
-> nub3 [x] = [x]                                         -- optimization
-> nub3 ls@[x,y] = nubBy (\ (x,_,_) (y,_,_) -> x == y) ls -- optimization
-> nub3 ls       = nub3sub IM.empty ls
-> nub3sub im [] = []
-> nub3sub im (x@(k,_,_):xs) = 
->     case IM.lookup k im of
->     Just _  -> nub3sub im xs
->     Nothing -> let im' = IM.insert k () im 
->                in x:(nub3sub im' xs)
-> -}
-
-
 
 
 

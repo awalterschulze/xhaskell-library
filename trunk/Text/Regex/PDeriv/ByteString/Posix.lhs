@@ -37,7 +37,7 @@ This algorithm implements the POSIX matching policy proceeds by scanning the inp
 > import Text.Regex.PDeriv.RE
 > import Text.Regex.PDeriv.Pretty (Pretty(..))
 > import Text.Regex.PDeriv.Common (Range, Letter, IsEmpty(..), my_hash, my_lookup, GFlag(..), IsEmpty(..), IsGreedy(..), nub2)
-> import Text.Regex.PDeriv.IntPattern (Pat(..), pdPat, toBinder, Binder(..), strip)
+> import Text.Regex.PDeriv.IntPattern (Pat(..), pdPat, toBinder, Binder(..), strip, listifyBinder)
 > import Text.Regex.PDeriv.Parse
 > import qualified Text.Regex.PDeriv.Dictionary as D (Dictionary(..), Key(..), insertNotOverwrite, lookupAll, empty, isIn, nub)
 
@@ -132,9 +132,12 @@ A function that builds the above table from the input pattern
 
 > -- | Function 'collectPatMatchFromBinder' collects match results from binder 
 > collectPatMatchFromBinder :: Word -> Binder -> Env
-> collectPatMatchFromBinder w [] = []
-> collectPatMatchFromBinder w ((x,[]):xs) = (x,S.empty):(collectPatMatchFromBinder w xs)
-> collectPatMatchFromBinder w ((x,rs):xs) = (x,foldl S.append S.empty $ map (rg_collect w) (id rs)):(collectPatMatchFromBinder w xs)
+> collectPatMatchFromBinder w b = collectPatMatchFromBinder_ w (listifyBinder b)
+
+
+> collectPatMatchFromBinder_ w [] = []
+> collectPatMatchFromBinder_ w ((x,[]):xs) = (x,S.empty):(collectPatMatchFromBinder_ w xs)
+> collectPatMatchFromBinder_ w ((x,rs):xs) = (x,foldl S.append S.empty $ map (rg_collect w) (id rs)):(collectPatMatchFromBinder_ w xs)
 
 > -- | algorithm right to left scanning single pass
 > -- | the "partial derivative" operations among integer states + binders
@@ -182,8 +185,8 @@ A function that builds the above table from the input pattern
 
 > compareBinderLocal :: Binder -> Binder -> Ordering 
 > compareBinderLocal bs bs' = 
->     let rs  = map snd bs
->         rs' = map snd bs'
+>     let rs  = map snd (listifyBinder bs)
+>         rs' = map snd (listifyBinder bs')
 >         os  = map (\ (r,r') -> compareRangeLocal r r')  (zip rs rs')
 >     in {- logger (print (show os)) `seq` 
 >        logger (print (show bs)) `seq` 
@@ -278,13 +281,31 @@ A function that builds the above table from the input pattern
 a function that updates the binder given an index (that is the pattern var)
 ASSUMPTION: the  var index in the pattern is linear. e.g. no ( 0 :: R1, (1 :: R2, 2 :: R3))
 
+> updateBinderByIndex :: Int 
+>                     -> Int 
+>                     -> Binder 
+>                     -> Binder
+> updateBinderByIndex i pos binder = 
+>     case IM.lookup i binder of
+>       { Nothing -> IM.insert i [(pos, pos)] binder
+>       ; Just ranges -> 
+>         case ranges of 
+>         { [] -> IM.update (\_ -> Just [(pos,pos)]) i binder
+>         ; ((b,e):rs) 
+>           | pos == b - 1  -> IM.update (\_ -> Just ((b-1,e):rs)) i binder
+>           | pos < (b - 1) -> IM.update (\_ -> Just ((pos,pos):(b,e):rs)) i binder
+>           | otherwise     -> error "impossible, the current letter position is greater than the last recorded letter"
+>         }
+>       }
+
+> {-
 > updateBinderByIndex :: Int    -- ^ pattern variable index
 >                        -> Int -- ^ letter position
 >                        -> Binder -> Binder
-> updateBinderByIndex i lpos binder =
+> updateBinderByIndex i lpos binder = 
 >     updateBinderByIndexSub lpos i binder 
 > 
-> updateBinderByIndexSub :: Int -> Int -> Binder -> Binder
+> -- updateBinderByIndexSub :: Int -> Int -> Binder -> Binder
 > updateBinderByIndexSub pos idx [] = []
 > updateBinderByIndexSub pos idx  (x@(idx',(b,e):rs):xs)
 >     | pos `seq` idx `seq` idx' `seq` xs `seq` False = undefined
@@ -296,12 +317,21 @@ ASSUMPTION: the  var index in the pattern is linear. e.g. no ( 0 :: R1, (1 :: R2
 >     | pos `seq` idx `seq` idx' `seq` xs `seq` False = undefined
 >     | idx == idx' = ((idx', [(pos, pos)]):xs)
 >     | otherwise = x:(updateBinderByIndexSub pos idx xs)
-
+> -}
 
 > resetLocalBnd :: Pat -> Binder -> Binder
 > resetLocalBnd p b = 
 >   let vs = getVars p
 >   in aux vs b 
+>      where aux :: [Int] -> Binder -> Binder
+>            aux is b = foldl (\b' i -> 
+>                              case IM.lookup i b' of
+>                                { Nothing -> b'
+>                                ; Just [] -> IM.update (\r -> Just r) i b'
+>                                ; Just ((s,e):_) -> IM.update (\r -> Just ((s,(s-1)):r)) i b'
+>                                }) b is
+>                                                       
+> {-
 >     where aux :: [Int] -> Binder -> Binder
 >           aux vs [] = []
 >           aux vs ((b@(x,r)):bs) | x `elem` vs = 
@@ -310,6 +340,7 @@ ASSUMPTION: the  var index in the pattern is linear. e.g. no ( 0 :: R1, (1 :: R2
 >                                       ; ((s,e):_) -> ((x, (s,(s-1)):r):(aux vs bs))
 >                                       } 
 >                                 | otherwise   =  (b:(aux vs bs))
+> -}
 
 retrieve all variables appearing in p
 
@@ -327,7 +358,7 @@ In case of p* we reset in the local binding.
 
 > pdPat0 :: Pat -> Letter -> [(Pat, Int -> Binder -> Binder, Bool )]
 > pdPat0 (PVar x w p) (l,idx) 
->     | null (toBinder p) = -- p is not nested
+>     | IM.null (toBinder p) = -- p is not nested
 >         let pds = partDeriv (strip p) l
 >         in if null pds then []
 >            else [ (PVar x [] (PE (resToRE pds)), (\i -> (updateBinderByIndex x i)), True ) ]
@@ -472,9 +503,9 @@ In case of p* we reset in the local binding.
 >     in io `seq` allbinders `seq` map (binderToMatchArray l) allbinders
 
 > binderToMatchArray l b  = 
->     let subPatB   = filter (\(x,_) -> x > 0) b
->         mbPrefixB = lookup (-1) b
->         mbSubfixB = lookup (-2) b
+>     let subPatB   = filter (\(x,_) -> x > 0) (listifyBinder b)
+>         mbPrefixB = IM.lookup (-1) b
+>         mbSubfixB = IM.lookup (-2) b
 >         mainB     = case (mbPrefixB, mbSubfixB) of
 >                       (Just [(_,x)], Just [(y,_)]) -> (x + 1, y - (x + 1))
 >                       (Just [(_,x)], _)            -> (x + 1, l - (x + 1))

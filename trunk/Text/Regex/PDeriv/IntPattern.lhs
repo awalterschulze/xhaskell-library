@@ -1,9 +1,20 @@
 > -- | This module defines the data type of internal regular expression pattern, 
 > -- | as well as the partial derivative operations for regular expression patterns.
-> module Text.Regex.PDeriv.IntPattern where
+> module Text.Regex.PDeriv.IntPattern 
+>     ( Pat(..)
+>     , strip
+>     , pdPat
+>     , Binder
+>     , toBinder
+>     , listifyBinder
+>  --  , updateBinderByIndex
+>     , pdPat0
+>     , nub2
+>     )
+>     where
 
 > import Data.List
-
+> import qualified Data.IntMap as IM
 > import Text.Regex.PDeriv.Common (Range, Letter, IsEmpty(..), GFlag(..), IsGreedy(..) )
 > import Text.Regex.PDeriv.RE
 > import Text.Regex.PDeriv.Dictionary (Key(..), primeL, primeR)
@@ -163,7 +174,7 @@
 > getBindingsFrom p1 p2 = let b = toBinder p2
 >                         in assign p1 b
 >     where assign :: Pat -> Binder -> Pat
->           assign (PVar x w p) b = case lookup x b of
+>           assign (PVar x w p) b = case IM.lookup x b of
 >                                     Nothing -> let p' = assign p b in PVar x w p'
 >                                     Just rs -> let p' = assign p b in PVar x (w ++ rs) p'
 >           assign (PE r) _ = PE r
@@ -187,43 +198,83 @@
 
 
 > -- | The 'Binder' type denotes a set of (pattern var * range) pairs
-> type Binder = [(Int, [Range])]
+> -- type Binder = [(Int, [Range])]
+> type Binder = IM.IntMap [Range]
 
 
 > -- | Function 'toBinder' turns a pattern into a binder
 > toBinder :: Pat -> Binder
-> toBinder  (PVar i rs p) = [(i,rs)] ++ (toBinder p)
-> toBinder  (PPair p1 p2) = (toBinder p1) ++ (toBinder p2)
-> toBinder  (PPlus p1 p2) = (toBinder p1) 
-> toBinder  (PStar p1 g)    = (toBinder p1) 
-> toBinder  (PE r)        = []
-> toBinder  (PChoice p1 p2 g) = (toBinder p1) ++ (toBinder p2)
-> toBinder  (PEmpty p) = toBinder p
+> toBinder p = IM.fromList (toBinderList p)
 
+> toBinderList :: Pat -> [(Int, [Range])]
+> toBinderList  (PVar i rs p) = [(i,rs)] ++ (toBinderList p)
+> toBinderList  (PPair p1 p2) = (toBinderList p1) ++ (toBinderList p2)
+> toBinderList  (PPlus p1 p2) = (toBinderList p1) 
+> toBinderList  (PStar p1 g)    = (toBinderList p1) 
+> toBinderList  (PE r)        = []
+> toBinderList  (PChoice p1 p2 g) = (toBinderList p1) ++ (toBinderList p2)
+> toBinderList  (PEmpty p) = toBinderList p
 
+> listifyBinder :: Binder -> [(Int, [Range])]
+> listifyBinder b = sortBy (\ x y -> compare (fst x) (fst y)) (IM.toList b)
+>                   
 
 > {-| Function 'updateBinderByIndex' updates a binder given an index to a pattern var
 >     ASSUMPTION: the var index in the pattern is linear. e.g. no ( 0 :: R1, (1 :: R2, 2 :a: R3))
 > -}
+
+> updateBinderByIndex :: Int 
+>                     -> Int 
+>                     -> Binder 
+>                     -> Binder
+> updateBinderByIndex i pos binder = -- binder  
+>     IM.update (\ r -> case r of  -- we always initialize to [], we don't need to handle the key miss case
+>                       { [] -> Just [(pos,pos)]
+>                       ; ((b,e):rs)
+>                           | pos == e + 1 -> Just ((b,e+1):rs)
+>                           | pos > e + 1  -> Just ((pos,pos):(b,e):rs)
+>                           | otherwise    -> error "impossible, the current letter position is smaller than the last recorded letter"   
+>                       } ) i binder 
+> {-
+> updateBinderByIndex i pos binder = 
+>     case IM.lookup i binder of
+>       { Nothing -> IM.insert i [(pos, pos)] binder
+>       ; Just ranges -> 
+>         case ranges of 
+>         { [] -> IM.update (\_ -> Just [(pos,pos)]) i binder
+>          ; ((b,e):rs)
+>           | pos == e + 1  -> IM.update (\_ -> Just ((b,e+1):rs)) i binder 
+>           | pos > e + 1 -> IM.update (\_ -> Just ((pos,pos):(b,e):rs)) i binder
+>           | otherwise     -> error "impossible, the current letter position is smaller than the last recorded letter"   
+>         }
+>       }
+> -}
+> {-
+> {-# INLINE updateBinderByIndex #-}
 > updateBinderByIndex :: Int    -- ^ the indext of the pattern variable
 >                        -> Int -- ^ the letter position
 >                        -> Binder -> Binder
 > updateBinderByIndex i lpos binder =
->     updateBinderByIndexSub lpos i binder 
+>     updateBinderByIndexSub i lpos binder 
 > 
+> {-# INLINE updateBinderByIndexSub #-}
 > updateBinderByIndexSub :: Int -> Int -> Binder -> Binder
-> updateBinderByIndexSub pos idx [] = []
-> updateBinderByIndexSub pos idx  (x@(idx',(b,e):rs):xs)
->     | pos `seq` idx `seq` idx' `seq` xs `seq` False = undefined
->     | idx == idx' && pos == (e + 1) = (idx', (b, e+ 1):rs):xs
->     | idx == idx' && pos > (e + 1)  = (idx', (pos,pos):(b, e):rs):xs
->     | idx == idx' && pos < (e + 1)  = error "impossible, the current letter position is smaller than the last recorded letter"
->     | otherwise =  x:(updateBinderByIndexSub pos idx xs)
-> updateBinderByIndexSub pos idx (x@(idx',[]):xs)
->     | pos `seq` idx `seq` idx' `seq` xs `seq` False = undefined
+> updateBinderByIndexSub idx pos [] = []
+> updateBinderByIndexSub idx pos (x@(idx',(b,e):rs):xs)
+>     -- | pos `seq` idx `seq` idx' `seq` xs `seq` False = undefined
+>     | idx == idx' = if pos == (e + 1)
+>                     then (idx', (b, e+ 1):rs):xs
+>                     else if pos > (e + 1) 
+>                          then (idx', (pos,pos):(b, e):rs):xs
+>                          else error "impossible, the current letter position is smaller than the last recorded letter"
+>     | otherwise = -- idx `seq` pos `seq` xs `seq` 
+>                    x:(updateBinderByIndexSub idx pos xs)
+> updateBinderByIndexSub idx pos (x@(idx',[]):xs)
+>     -- | pos `seq` idx `seq` idx' `seq` xs `seq` False = undefined
 >     | idx == idx' = ((idx', [(pos, pos)]):xs)
->     | otherwise = x:(updateBinderByIndexSub pos idx xs)
-
+>     | otherwise = -- idx `seq` pos `seq` xs `seq`  
+>                   x:(updateBinderByIndexSub idx pos xs)
+> -} 
 
 > {-| Function 'pdPat0' is the 'abstracted' form of the 'pdPat' function
 >     It computes a set of pairs. Each pair consists a 'shape' of the partial derivative, and
@@ -233,13 +284,14 @@
 >           -> Letter -- ^ the letter to be "consumed"
 >           -> [(Pat, Int -> Binder -> Binder)]
 > pdPat0 (PVar x w p) (l,idx) 
->     | null (toBinder p) = -- p is not nested
+>     | IM.null (toBinder p) = -- p is not nested
 >         let pds = partDeriv (strip p) l
->         in pds `seq` if null pds then []
->                      else [ (PVar x [] (PE (resToRE pds)), (\i -> (updateBinderByIndex x i))) ]
+>         in g `seq` pds `seq` if null pds then []
+>                              else [ (PVar x [] (PE (resToRE pds)), g) ]
 >     | otherwise = 
 >         let pfs = pdPat0 p (l,idx)
->         in pfs `seq` [ (PVar x [] pd, (\i -> (updateBinderByIndex x i) . (f i) ) ) | (pd,f) <- pfs ]
+>         in g `seq` pfs `seq` [ (PVar x [] pd, (\i -> (g i) . (f i) )) | (pd,f) <- pfs ]
+>     where g = updateBinderByIndex x
 > pdPat0 (PE r) (l,idx) = 
 >     let pds = partDeriv r l
 >     in  pds `seq` if null pds then []
