@@ -34,7 +34,7 @@ an emptiable pattern and the input word is fully consumed.
 
 > import Text.Regex.PDeriv.RE
 > import Text.Regex.PDeriv.Pretty (Pretty(..))
-> import Text.Regex.PDeriv.Common (Range, Letter, IsEmpty(..), my_hash, my_lookup, GFlag(..), IsEmpty(..), nub2)
+> import Text.Regex.PDeriv.Common (Range, Letter, IsEmpty(..), my_hash, my_lookup, GFlag(..), IsEmpty(..), nub2, minBinder, maxBinder)
 > import Text.Regex.PDeriv.IntPattern (Pat(..), pdPat, pdPat0, toBinder, Binder(..), strip, listifyBinder)
 > import Text.Regex.PDeriv.Parse
 > import qualified Text.Regex.PDeriv.Dictionary as D (Dictionary(..), Key(..), insert, insertNotOverwrite, lookupAll, empty, isIn, nub)
@@ -131,9 +131,9 @@ Technical problem, how to hash a [ Int ] in Haskell?
 
 > type NFAStates = [ Int ]
 
-> type DPat0Table = IM.IntMap ( Int       -- ^ the next DFA state
->                             , NFAStates -- ^ the next NFA states
->                             , IM.IntMap [Int -> Binder -> Binder] -- ^ the transition function : position -> current_binders -> next_binders
+> type DPat0Table = IM.IntMap ( Int       -- the next DFA state
+>                             , NFAStates -- the next NFA states
+>                             , IM.IntMap [Int -> Binder -> Binder] -- the transition function : position -> current_binders -> next_binders
 >                             ) -- deterministic: one output state and one update function
 
 > buildDPat0Table :: Pat -> (DPat0Table, [Int])
@@ -299,7 +299,7 @@ or able to come out a smallish example)
 >                     nextNfaStateBinders = {-# SCC "nextNfaStateBinders" #-} -- io `seq` 
 >                                           binders `seq` next_nfaStates `seq` j `seq`
 >                                           map (\(x,y) -> (j,x,y)) (zip next_nfaStates binders)
->                     cnt' = {-# SCC "cnt" #-} cnt `seq` cnt + 1
+>                     cnt' = {-# SCC "cnt" #-} cnt + 1
 >                 in nextNfaStateBinders `seq` cnt' `seq` w `seq`
 >                        patMatchesIntStatePdPat1 cnt' dStateTable w  nextNfaStateBinders } 
 
@@ -402,8 +402,8 @@ Compilation
 >  case greedyPatMatchCompiled r bs of
 >    Nothing -> Right (Nothing)
 >    Just env ->
->      let pre = case lookup (-1) env of { Just w -> w ; Nothing -> S.empty }
->          post = case lookup (-2) env of { Just w -> w ; Nothing -> S.empty }
+>      let pre = case lookup minBinder env of { Just w -> w ; Nothing -> S.empty }
+>          post = case lookup maxBinder env of { Just w -> w ; Nothing -> S.empty }
 >          full_len = S.length bs
 >          pre_len = S.length pre
 >          post_len = S.length post

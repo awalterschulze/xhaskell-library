@@ -34,7 +34,7 @@ an emptiable pattern and the input word is fully consumed.
 
 > import Text.Regex.PDeriv.RE
 > import Text.Regex.PDeriv.Pretty (Pretty(..))
-> import Text.Regex.PDeriv.Common (Range, Letter, IsEmpty(..), my_hash, my_lookup, GFlag(..), IsEmpty(..), nub2)
+> import Text.Regex.PDeriv.Common (Range, Letter, IsEmpty(..), my_hash, my_lookup, GFlag(..), IsEmpty(..), nub2, minBinder, maxBinder)
 > import Text.Regex.PDeriv.IntPattern (Pat(..), pdPat, pdPat0, toBinder, Binder(..), strip, listifyBinder)
 > import Text.Regex.PDeriv.Parse
 > import qualified Text.Regex.PDeriv.Dictionary as D (Dictionary(..), Key(..), insertNotOverwrite, lookupAll, empty, isIn, nub)
@@ -328,8 +328,8 @@ Compilation
 >  case greedyPatMatchCompiled r bs of
 >    Nothing -> Right (Nothing)
 >    Just env ->
->      let pre = case lookup (-1) env of { Just w -> w ; Nothing -> S.empty }
->          post = case lookup (-2) env of { Just w -> w ; Nothing -> S.empty }
+>      let pre = case lookup minBinder env of { Just w -> w ; Nothing -> S.empty }
+>          post = case lookup maxBinder env of { Just w -> w ; Nothing -> S.empty }
 >          full_len = S.length bs
 >          pre_len = S.length pre
 >          post_len = S.length post
