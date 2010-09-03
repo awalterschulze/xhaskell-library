@@ -36,7 +36,7 @@ This algorithm implements the POSIX matching policy proceeds by scanning the inp
 
 > import Text.Regex.PDeriv.RE
 > import Text.Regex.PDeriv.Pretty (Pretty(..))
-> import Text.Regex.PDeriv.Common (Range, Letter, IsEmpty(..), my_hash, my_lookup, GFlag(..), IsEmpty(..), IsGreedy(..), nub2)
+> import Text.Regex.PDeriv.Common (Range, Letter, IsEmpty(..), my_hash, my_lookup, GFlag(..), IsEmpty(..), IsGreedy(..), nub2, minBinder, maxBinder)
 > import Text.Regex.PDeriv.IntPattern (Pat(..), pdPat, toBinder, Binder(..), strip, listifyBinder)
 > import Text.Regex.PDeriv.Parse
 > import qualified Text.Regex.PDeriv.Dictionary as D (Dictionary(..), Key(..), insertNotOverwrite, lookupAll, empty, isIn, nub)
@@ -424,8 +424,8 @@ In case of p* we reset in the local binding.
 >  case posixPatMatchCompiled r bs of
 >    Nothing -> Right (Nothing)
 >    Just env ->
->      let pre = case lookup (-1) env of { Just w -> w ; Nothing -> S.empty }
->          post = case lookup (-2) env of { Just w -> w ; Nothing -> S.empty }
+>      let pre = case lookup minBinder env of { Just w -> w ; Nothing -> S.empty }
+>          post = case lookup maxBinder env of { Just w -> w ; Nothing -> S.empty }
 >          full_len = S.length bs
 >          pre_len = S.length pre
 >          post_len = S.length post
@@ -503,9 +503,9 @@ In case of p* we reset in the local binding.
 >     in io `seq` allbinders `seq` map (binderToMatchArray l) allbinders
 
 > binderToMatchArray l b  = 
->     let subPatB   = filter (\(x,_) -> x > 0) (listifyBinder b)
->         mbPrefixB = IM.lookup (-1) b
->         mbSubfixB = IM.lookup (-2) b
+>     let subPatB   = filter (\(x,_) -> x > minBinder && x < maxBinder) (listifyBinder b)
+>         mbPrefixB = IM.lookup minBinder b
+>         mbSubfixB = IM.lookup maxBinder b
 >         mainB     = case (mbPrefixB, mbSubfixB) of
 >                       (Just [(_,x)], Just [(y,_)]) -> (x + 1, y - (x + 1))
 >                       (Just [(_,x)], _)            -> (x + 1, l - (x + 1))
@@ -607,3 +607,6 @@ but in the expected output, it should be matched by the -2 sub group??
 
 > Right r64 =  compile defaultCompOpt defaultExecOpt (S.pack "^(a*?)(a*)(a*?)$")
 
+> Right up25 = compile defaultCompOpt defaultExecOpt (S.pack "^(.*?)(a|ab|ba)(.*)$")
+> Right up26 = compile defaultCompOpt defaultExecOpt (S.pack "(a|ab|ba)")
+> s25 = S.pack "aba"

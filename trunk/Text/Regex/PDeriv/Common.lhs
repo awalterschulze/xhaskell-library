@@ -9,6 +9,8 @@
 >     , IsGreedy (..)
 >     , nub2
 >     , nub3
+>     , minBinder
+>     , maxBinder
 >     ) where
 
 > import Data.Char (ord)
@@ -122,4 +124,12 @@ the lookup function
 >                                               Nothing -> (im', x:xs')
 
 
+The smallest binder index capturing the prefix of the unanchored regex
 
+> minBinder :: Int
+> minBinder = 0
+
+The largest binder index capturing for the suffix of the unanchored regex
+
+> maxBinder :: Int
+> maxBinder = 2147483647

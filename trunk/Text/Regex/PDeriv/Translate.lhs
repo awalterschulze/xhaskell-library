@@ -73,7 +73,6 @@ getters and putters
 >                   }
 
 
-
 > -- | Translating external pattern to internal pattern
 > translate :: EPat -> Pat
 > translate epat = case runState (trans epat) initTState of
@@ -82,9 +81,10 @@ getters and putters
 >                        hasAnchorE = anchorEnd state
 >                    in case (hasAnchorS, hasAnchorE) of
 >                       (True, True) -> pat -- PVar 0 [] pat 
->                       (True, False) -> PPair pat (PVar (-2) [] (PE (Star Any Greedy)))
->                       (False, True) -> PPair (PVar (-1) [] (PE (Star Any NotGreedy))) pat
->                       (False, False) -> PPair (PVar (-1) [] (PE (Star Any NotGreedy))) (PPair pat (PVar (-2) [] (PE (Star Any Greedy))))
+>                       (True, False) -> PPair pat (PVar maxBinder [] (PE (Star Any NotGreedy)))
+>                       (False, True) -> PPair (PVar minBinder [] (PE (Star Any NotGreedy))) pat
+>                       (False, False) -> PPair (PVar minBinder [] (PE (Star Any NotGreedy))) (PPair pat (PVar maxBinder [] (PE (Star Any NotGreedy))))
+>                       -- (False, False) -> (PPair (PPair (PVar (-1) [] (PE (Star Any NotGreedy))) pat) (PVar (-2) [] (PE (Star Any Greedy))))
 
 > {-| 'trans' The top level translation scheme e ~> p
 >     There are two sub rules.
