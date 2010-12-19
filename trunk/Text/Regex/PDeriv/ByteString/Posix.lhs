@@ -36,7 +36,7 @@ This algorithm implements the POSIX matching policy proceeds by scanning the inp
 
 > import Text.Regex.PDeriv.RE
 > import Text.Regex.PDeriv.Pretty (Pretty(..))
-> import Text.Regex.PDeriv.Common (Range, Letter, IsEmpty(..), my_hash, my_lookup, GFlag(..), IsEmpty(..), IsGreedy(..), nub2, minBinder, maxBinder)
+> import Text.Regex.PDeriv.Common (Range, Letter, IsEmpty(..), my_hash, my_lookup, GFlag(..), IsEmpty(..), IsGreedy(..), preBinder, subBinder, mainBinder)
 > import Text.Regex.PDeriv.IntPattern (Pat(..), pdPat, toBinder, Binder(..), strip, listifyBinder)
 > import Text.Regex.PDeriv.Parse
 > import qualified Text.Regex.PDeriv.Dictionary as D (Dictionary(..), Key(..), insertNotOverwrite, lookupAll, empty, isIn, nub)
@@ -114,7 +114,7 @@ A function that builds the above table from the input pattern
 >     | otherwise = 
 >         let 
 >             all_sofar_states = acc_states ++ curr_states
->             new_delta = [ (s, l, f, s', flag, gf ) | s <- curr_states, l <- sig, ((s',f,gf),flag) <- pdPat0Flag s l]
+>             new_delta = [ (s, l, f, s', flag, gf) | s <- curr_states, l <- sig, ((s',f, gf),flag) <- pdPat0Flag s l]
 >             new_states = all_sofar_states `seq` D.nub [ s' | (_,_,_,s',_,_) <- new_delta
 >                                                       , not (s' `D.isIn` dict) ]
 >             acc_delta_next  = (acc_delta ++ new_delta)
@@ -131,13 +131,16 @@ A function that builds the above table from the input pattern
 
 
 > -- | Function 'collectPatMatchFromBinder' collects match results from binder 
-> collectPatMatchFromBinder :: Word -> Binder -> Env
-> collectPatMatchFromBinder w b = collectPatMatchFromBinder_ w (listifyBinder b)
+> collectPatMatchFromBinder :: Word -> IM.IntMap () -> Binder -> Env
+> collectPatMatchFromBinder w posixBnd b = collectPatMatchFromBinder_ w (filter ( \(i,r) -> IM.notMember i posixBnd) (listifyBinder b))
 
-
+> collectPatMatchFromBinder_ :: Word -> [(Int,[Range])] -> Env
 > collectPatMatchFromBinder_ w [] = []
-> collectPatMatchFromBinder_ w ((x,[]):xs) = (x,S.empty):(collectPatMatchFromBinder_ w xs)
-> collectPatMatchFromBinder_ w ((x,rs):xs) = (x,foldl S.append S.empty $ map (rg_collect w) (id rs)):(collectPatMatchFromBinder_ w xs)
+> collectPatMatchFromBinder_ w ((x,rs):xrs) =
+>     case rs of
+>       [] -> (x,S.empty):(collectPatMatchFromBinder_ w xrs)
+>       rs -> (x,foldl S.append S.empty $ map (rg_collect w) (id rs)):(collectPatMatchFromBinder_ w xrs)
+
 
 > -- | algorithm right to left scanning single pass
 > -- | the "partial derivative" operations among integer states + binders
@@ -147,8 +150,21 @@ A function that builds the above table from the input pattern
 >     Just quatripples -> [ (j, op x b, p, gf) | (j, op, p, gf) <- quatripples ]
 >     Nothing -> []
  
+> {- | map pattern variable to greedy flag
+> type GreedyFlagMap = IM.IntMap Bool
 
-> patMatchesIntStatePdPat0Rev  :: Int -> PdPat0TableRev -> Word -> [(Int, Binder, Int, Bool)] -> [(Int, Binder, Int, Bool )]
+> buildGFM :: Pat -> GreedyFlagMap
+> buildGFM p = IM.fromList (aux p)
+>   where aux :: Pat -> [(Int,Bool)]
+>         aux  (PVar i rs p) = [(i, isGreedy p)] ++ (aux p)
+>         aux  (PPair p1 p2) = (aux p1) ++ (aux p2)
+>         aux  (PPlus p1 p2) = (aux p1) 
+>         aux  (PStar p1 g)  = (aux p1) 
+>         aux  (PE r)        = []
+>         aux  (PChoice p1 p2 g) = (aux p1) ++ (aux p2)
+>         aux  (PEmpty p) = aux p -}
+
+> patMatchesIntStatePdPat0Rev  :: Int -> PdPat0TableRev -> Word -> [(Int, Binder, Int, Bool)] -> [(Int, Binder, Int, Bool)]
 > patMatchesIntStatePdPat0Rev  cnt pdStateTableRev w fs =
 >     case S.uncons w of 
 >       Nothing -> fs
@@ -172,9 +188,9 @@ A function that builds the above table from the input pattern
 >     in (x:xs')
 > nubPosixSub a@(x@(k,b,n,vs):xs) = 
 >     let cmp (k1,b1,_,gf1) (k2,b2,_,gf2) = 
->             case compare gf1 gf2 of
+>              case compare gf1 gf2 of
 >               EQ -> compareBinderLocal b1 b2 --  compare (b1,v1) (b2,v2)
->               ordering -> ordering 
+>               ordering -> ordering  
 >         ys = [ (k',b',n',gf') | (k',b',n',gf') <- a, k == k' ]
 >         zs = [ (k',b',n',gf') | (k',b',n',gf') <- a, not (k == k') ]
 >         y = maximumBy cmp ys
@@ -183,15 +199,25 @@ A function that builds the above table from the input pattern
 >        else nubPosixSub xs
 
 
-> compareBinderLocal :: Binder -> Binder -> Ordering 
+> compareBinderLocal ::  Binder -> Binder -> Ordering 
 > compareBinderLocal bs bs' = 
->     let rs  = map snd (listifyBinder bs)
->         rs' = map snd (listifyBinder bs')
+>     -- When comparing local binders, we should disregard the preBinder and subBinder in case of unanchored match.
+>     -- If we include preBinder and subBinder in the local binders comparison, it leads to non-posix result.
+>     -- Suppose we have unanchored p = (Ab|cD)*, transforming it into an anchored pattern (.*) (Ab|cD)* (.*) where the first (.*) is not greedy.
+>     -- Since we have only pair constructor, we need to put paranthesis around sub binders, let say ((.*) (Ab|cD)*) (.*)
+>     -- let input be AbCd, the first (.*) will consume the entire input in order to optimize ((.*) (Ab|cD)*).
+>     --  similarly, we could construct another counter example "aBcD", if we put paranthesis around the 2nd and 3rd sub binders.
+>     let rs  = map snd (listifyBinder bs) -- map snd (filter (\(x,_) -> x > preBinder && x < subBinder) (listifyBinder bs))
+>         rs' = map snd (listifyBinder bs') -- map snd (filter (\(x,_) -> x > preBinder && x < subBinder) (listifyBinder bs'))
 >         os  = map (\ (r,r') -> compareRangeLocal r r')  (zip rs rs')
 >     in {- logger (print (show os)) `seq` 
 >        logger (print (show bs)) `seq` 
 >        logger (print (show bs')) `seq` -}
 >        firstNonEQ os
+>           
+>               
+
+
 
 > compareRangeLocal :: [Range] -> [Range] -> Ordering
 > compareRangeLocal [] [] = EQ
@@ -229,10 +255,10 @@ A function that builds the above table from the input pattern
 >         l = S.length w
 >         w' = S.reverse w
 >         fs = [ (i, b, 0, True) | i <- fins ]
->         fs' =  w' `seq` fins `seq` l `seq` pdStateTableRev `seq` (patMatchesIntStatePdPat0Rev (l-1) pdStateTableRev w' fs)
+>         fs' =  w' `seq` fins `seq` l `seq` pdStateTableRev `seq` (patMatchesIntStatePdPat0Rev (l-1) pdStateTableRev  w' fs)
 >         -- fs'' = my_sort fs'
->         allbinders = [ b | (s,b,_, _) <- fs', s == 0 ]
->     in map (collectPatMatchFromBinder w) allbinders
+>         allbinders = [ b | (s,b,_,_) <- fs', s == 0 ]
+>     in map (collectPatMatchFromBinder w IM.empty ) allbinders -- todo: fix me
 >                      
 
 > -- my_sort = sortBy (\ (_,_,ps) (_,_,ps') -> compare ps ps')
@@ -248,26 +274,27 @@ A function that builds the above table from the input pattern
 >     first _ = Nothing
 
 
-> compilePat :: Pat -> (PdPat0TableRev, [Int], Binder)
-> compilePat p = {- pdStateTable `seq` b `seq` -} (pdStateTable, fins, b)
+> compilePat :: (Pat,IM.IntMap ()) -> (PdPat0TableRev, [Int], Binder, FollowBy, IM.IntMap ())
+> compilePat (p,posixBnd) = {- pdStateTable `seq` b `seq` -} (pdStateTable, fins, b, fb, posixBnd)
 >     where 
 >           (pdStateTable,fins) = buildPdPat0Table p
 >           b = toBinder p
+>           fb = followBy p 
 
 
-> patMatchIntStateCompiled ::  (PdPat0TableRev, [Int], Binder) -> Word -> [Env]
-> patMatchIntStateCompiled (pdStateTable, fins ,b)  w =
+> patMatchIntStateCompiled ::  (PdPat0TableRev, [Int], Binder, FollowBy, IM.IntMap ()) -> Word -> [Env]
+> patMatchIntStateCompiled (pdStateTable, fins, b, fb, posixBinder)  w =
 >     let
 >         l = S.length w
 >         w' = S.reverse w
 >         fs = [ (i, b, i, True) | i <- fins ]
 >         fs' = w' `seq` fs `seq`  l `seq` pdStateTable `seq` (patMatchesIntStatePdPat0Rev (l-1) pdStateTable w' fs)
 >         -- fs'' = fs' `seq` my_sort fs'
->         allbinders = fs' `seq` [  b' | (s,b',_, _) <- fs', s == 0 ]
->     in allbinders `seq` map (collectPatMatchFromBinder w) allbinders
+>         allbinders = fs' `seq` [  b' | (s,b',_,_) <- fs', s == 0 ]
+>     in allbinders `seq` map (collectPatMatchFromBinder w posixBinder) allbinders
 >       
 
-> posixPatMatchCompiled :: (PdPat0TableRev, [Int], Binder) -> Word -> Maybe Env
+> posixPatMatchCompiled :: (PdPat0TableRev, [Int], Binder, FollowBy, IM.IntMap ()) -> Word -> Maybe Env
 > posixPatMatchCompiled compiled w =
 >      first (patMatchIntStateCompiled compiled w)
 >   where
@@ -356,19 +383,19 @@ retrieve all variables appearing in p
 An specialized version of pdPat0 specially designed for the Posix match
 In case of p* we reset in the local binding.
 
-> pdPat0 :: Pat -> Letter -> [(Pat, Int -> Binder -> Binder, Bool )]
+> pdPat0 :: Pat -> Letter -> [(Pat, Int -> Binder -> Binder, Bool)]
 > pdPat0 (PVar x w p) (l,idx) 
 >     | IM.null (toBinder p) = -- p is not nested
 >         let pds = partDeriv (strip p) l
 >         in if null pds then []
->            else [ (PVar x [] (PE (resToRE pds)), (\i -> (updateBinderByIndex x i)), True ) ]
+>            else [ (PVar x [] (PE (resToRE pds)), (\i -> (updateBinderByIndex x i)), True) ]
 >     | otherwise = 
 >         let pfs = pdPat0 p (l,idx)
->         in [ (PVar x [] pd, (\i -> (f i) . (updateBinderByIndex x i)  ), True ) | (pd,f, _) <- pfs ]
+>         in [ (PVar x [] pd, (\i -> (f i) . (updateBinderByIndex x i)  ), True) | (pd,f,_) <- pfs ]
 > pdPat0 (PE r) (l,idx) = 
 >     let pds = partDeriv r l
 >     in if null pds then []
->        else [ (PE (resToRE pds), ( \_ -> id ), True ) ]
+>        else [ (PE (resToRE pds), ( \_ -> id ), True) ]
 > pdPat0 (PStar p g) l = let pfs = pdPat0 p l
 >                            reset  = resetLocalBnd p -- restart all local binder in variables in p
 >                        in [ (PPair p' (PStar p g), (\ i -> reset . (f i) ), True) | (p', f, _) <- pfs ]
@@ -381,20 +408,22 @@ In case of p* we reset in the local binding.
 > pdPat0 (PPair p1 p2) l = 
 >     if (isEmpty (strip p1))
 >     then if isGreedy p1
->          then nub3 ([ (PPair p1' p2, f, True) | (p1' , f, _) <- pdPat0 p1 l ] ++ (pdPat0 p2 l))
+>          then nub3 ([ (PPair p1' p2, f, True) | (p1' , f, _ ) <- pdPat0 p1 l ] ++ (pdPat0 p2 l))
 >          else nub3 ((pdPat0 p2 l) ++ [ (PPair p1' p2, f, False) | (p1' , f, _) <- pdPat0 p1 l ])
 >     else [ (PPair p1' p2, f, True) | (p1',f, _) <- pdPat0 p1 l ]
 > pdPat0 (PChoice p1 p2 _) l = 
 >     nub3 ((pdPat0 p1 l) ++ (pdPat0 p2 l)) -- nub doesn't seem to be essential
 
 
+> 
 > nub3 :: Eq a => [(a,b,c)] -> [(a,b,c)]
-> nub3 = nubBy (\(p1,_,_) (p2, _, _) -> p1 == p2) 
-
+> nub3 = nubBy (\(p1,_,_) (p2,_,_) -> p1 == p2) 
+> 
 
 > -- | The PDeriv backend spepcific 'Regex' type
-
-> type Regex = (PdPat0TableRev, [Int], Binder) 
+> -- | the IntMap keeps track of the auxillary binder generated because of posix matching, i.e. all sub expressions need to be tag
+> -- | the FollowBy keeps track of the order of the pattern binder 
+> type Regex = (PdPat0TableRev, [Int], Binder, FollowBy, IM.IntMap ()) 
 
 
 -- todo: use the CompOption and ExecOption
@@ -404,11 +433,11 @@ In case of p* we reset in the local binding.
 >         -> S.ByteString -- ^ The regular expression to compile
 >         -> Either String Regex -- ^ Returns: the compiled regular expression
 > compile compOpt execOpt bs =
->     case parsePat (S.unpack bs) of
+>     case parsePatPosix (S.unpack bs) of
 >     Left err -> Left ("parseRegex for Text.Regex.PDeriv.ByteString failed:"++show err)
 >     Right pat -> Right (patToRegex pat compOpt execOpt)
 >     where 
->       patToRegex p _ _ = (compilePat p)
+>       patToRegex p _ _ =  compilePat p
 
 
 
@@ -422,18 +451,19 @@ In case of p* we reset in the local binding.
 >        -> Either String (Maybe (S.ByteString, S.ByteString, S.ByteString, [S.ByteString]))
 > regexec r bs =
 >  case posixPatMatchCompiled r bs of
->    Nothing -> Right (Nothing)
+>    Nothing -> Right Nothing
 >    Just env ->
->      let pre = case lookup minBinder env of { Just w -> w ; Nothing -> S.empty }
->          post = case lookup maxBinder env of { Just w -> w ; Nothing -> S.empty }
+>      let pre = case lookup preBinder env of { Just w -> w ; Nothing -> S.empty }
+>          post = case lookup subBinder env of { Just w -> w ; Nothing -> S.empty }
 >          full_len = S.length bs
 >          pre_len = S.length pre
 >          post_len = S.length post
 >          main_len = full_len - pre_len - post_len
 >          main_and_post = S.drop pre_len bs
 >          main = main_and_post `seq` main_len `seq` S.take main_len main_and_post
->          matched = map snd (filter (\(v,w) -> v > 0) env)
->      in Right (Just (pre,main,post,matched))
+>          matched = map snd (filter (\(v,w) -> v > mainBinder && v < subBinder ) env)
+>      in -- logger (print (show env)) `seq` 
+>             Right (Just (pre,main,post,matched))
 
 
 > -- | Control whether the pattern is multiline or case-sensitive like Text.Regex and whether to
@@ -490,40 +520,84 @@ In case of p* we reset in the local binding.
 
 
 
-> patMatchIntStateCompiledMatchArray ::  (PdPat0TableRev, [Int], Binder) -> Word -> [MatchArray]
-> patMatchIntStateCompiledMatchArray (pdStateTable, fins ,b)  w =
+> patMatchIntStateCompiledMatchArray ::  (PdPat0TableRev, [Int], Binder, FollowBy, IM.IntMap ()) -> Word -> [MatchArray]
+> patMatchIntStateCompiledMatchArray (pdStateTable, fins, b, fb, posixBnd)  w =
 >     let
 >         l = S.length w
 >         w' = S.reverse w
 >         fs = [ (i, b, i, True) | i <- fins ]
 >         fs' = w' `seq` fs `seq`  l `seq` pdStateTable `seq` (patMatchesIntStatePdPat0Rev (l-1) pdStateTable w' fs)
 >         -- fs'' = fs' `seq` my_sort fs'
->         allbinders = fs' `seq` [  b' | (s,b',_, _) <- fs', s == 0 ]
+>         allbinders = fs' `seq` [  b' | (s,b',_,_) <- fs', s == 0 ]
 >         io = logger (print $ show allbinders)
->     in io `seq` allbinders `seq` map (binderToMatchArray l) allbinders
+>     in -- io `seq` 
+>            allbinders `seq` map (binderToMatchArray l fb posixBnd) allbinders
 
-> binderToMatchArray l b  = 
->     let subPatB   = filter (\(x,_) -> x > minBinder && x < maxBinder) (listifyBinder b)
->         mbPrefixB = IM.lookup minBinder b
->         mbSubfixB = IM.lookup maxBinder b
+
+> updateEmptyBinder b fb = 
+>     let 
+>         up b (x,y) = case IM.lookup x b of 
+>                      { Just (_:_) -> -- non-empty, nothing to do
+>                        b
+>                      ; Just [] ->  -- lookup the predecessor
+>                        case IM.lookup y b of
+>                        { Just r@(_:_) -> let i = snd (last r)
+>                                          in IM.update (\_ -> Just [(i,i)]) x b
+>                        ; _ -> b }
+>                      ; Nothing -> b }
+>     in foldl up b fb
+
+> binderToMatchArray l fb posixBnd b  = 
+>     let -- b'        = updateEmptyBinder b fb
+>         subPatB   = filter (\(x,_) -> x > mainBinder && x < subBinder && x `IM.notMember` posixBnd ) (listifyBinder b)
+>         mbPrefixB = IM.lookup preBinder b
+>         mbSubfixB = IM.lookup subBinder b
 >         mainB     = case (mbPrefixB, mbSubfixB) of
 >                       (Just [(_,x)], Just [(y,_)]) -> (x + 1, y - (x + 1))
 >                       (Just [(_,x)], _)            -> (x + 1, l - (x + 1))
 >                       (_, Just [(y,_)])            -> (0, y) 
 >                       (_, _)                       -> (0, l)
->                       _                            -> error (show (mbPrefixB, mbSubfixB) )
->         rs = map snd subPatB      
->     in listToArray (mainB:(map (\r -> case r of { (_:_) -> fromRange (last r) ; [] -> (-1,0) } ) rs))
+>                       _                            -> error (show (mbPrefixB, mbSubfixB) ) 
+>         rs        = map snd subPatB      
+>         rs'       = map (\r -> case r of { (_:_) -> fromRange (last r) ; [] -> (-1,0) } ) rs
+>         
+>         {- (_,rs')   = foldl (\(i,xs) r -> case r of { (_:_) -> let x@(start,len) = fromRange (last r) 
+>                                                              in  (start + len, xs ++ [x])
+>                                                   ; []    -> (i, xs ++ [(i,0)]) } ) (0,[]) rs -}
+>     in listToArray (mainB:rs')
 >     where fromRange (b,e) = (b, e-b+1)
+>                             
 
 > listToArray l = listArray (0,length l-1) l
 
-> posixPatMatchCompiledMatchArray :: (PdPat0TableRev, [Int], Binder) -> Word -> Maybe MatchArray
+> posixPatMatchCompiledMatchArray :: (PdPat0TableRev, [Int], Binder, FollowBy, IM.IntMap () ) -> Word -> Maybe MatchArray
 > posixPatMatchCompiledMatchArray compiled w =
 >      first (patMatchIntStateCompiledMatchArray compiled w)
 >   where
 >     first (env:_) = return env
 >     first _ = Nothing
+
+
+> -- | from FollowBy, we recover the right result of the variable that bound (-1,-1) to fit Chris' test case
+> 
+
+> type FollowBy = [(Int,Int)]
+
+> followBy :: Pat -> FollowBy
+> followBy p = map (\p -> (snd p, fst p)) (fst $ buildFollowBy p ([],[]))
+
+> -- | describe the "followedBy" relation between two pattern variable
+> buildFollowBy :: Pat -> ([(Int,Int)], [Int]) -> ([(Int,Int)], [Int])
+> buildFollowBy (PVar x w p) (acc, lefts) = let (acc', lefts') = buildFollowBy p (acc,lefts)
+>                                           in ([ (l,x) | l <- lefts] ++ acc', [x])
+> buildFollowBy (PE r) x                  = x
+> buildFollowBy (PStar p g) (acc, lefts)  = buildFollowBy p (acc,lefts)
+> buildFollowBy (PPair p1 p2) (acc, lefts) = let (acc',lefts') = buildFollowBy p1 (acc,lefts)
+>                                            in buildFollowBy p2 (acc',lefts')
+> buildFollowBy (PChoice p1 p2 _) (acc, lefts) = let (acc1, lefts1) = buildFollowBy p1 (acc,lefts)
+>                                                    (acc2, lefts2) = buildFollowBy p2 (acc1,lefts)
+>                                                in (acc2, lefts1 ++ lefts2)
+
 
 
 > Right r0 = compile defaultCompOpt defaultExecOpt (S.pack "(ab|a)(bc|c)")
@@ -607,6 +681,40 @@ but in the expected output, it should be matched by the -2 sub group??
 
 > Right r64 =  compile defaultCompOpt defaultExecOpt (S.pack "^(a*?)(a*)(a*?)$")
 
-> Right up25 = compile defaultCompOpt defaultExecOpt (S.pack "^(.*?)(a|ab|ba)(.*)$")
-> Right up26 = compile defaultCompOpt defaultExecOpt (S.pack "(a|ab|ba)")
+Right up25 = compile defaultCompOpt defaultExecOpt (S.pack "^(.*?)(a|ab|ba)(.*)$")
+
+> Right up25 = compile defaultCompOpt defaultExecOpt (S.pack "(a|ab|ba)")
 > s25 = S.pack "aba"
+
+
+> Right up112 = compile defaultCompOpt defaultExecOpt (S.pack "a+(b|c)*d+")
+
+Right up112 = compile defaultCompOpt defaultExecOpt (S.pack "^(.*?)(a+(b|c)*d+)(.*)$")
+
+> s112 = S.pack "aabcdd"
+
+Right up34 = compile defaultCompOpt defaultExecOpt (S.pack "^((.*?)((Ab|cD)*))(.*)$")
+
+> Right up34 = compile defaultCompOpt defaultExecOpt (S.pack "(Ab|cD)*")
+
+> s34 = S.pack "aBcD"
+
+> Right up17 = compile defaultCompOpt defaultExecOpt (S.pack "a*(a.|aa)")
+
+> s17 = S.pack "aaaa"
+
+Right up27 = compile defaultCompOpt defaultExecOpt (S.pack "^(.*?)((ab|abab)(.*))$") 
+
+> Right up27 = compile defaultCompOpt defaultExecOpt (S.pack "ab|abab") 
+
+
+> s27 = S.pack "abbabab"
+
+
+
+
+> Right up11 = compile defaultCompOpt defaultExecOpt (S.pack ".*(.*)") 
+
+
+> s11 = S.pack "ab"
+

@@ -174,9 +174,12 @@
 > getBindingsFrom p1 p2 = let b = toBinder p2
 >                         in assign p1 b
 >     where assign :: Pat -> Binder -> Pat
->           assign (PVar x w p) b = case IM.lookup x b of
->                                     Nothing -> let p' = assign p b in PVar x w p'
->                                     Just rs -> let p' = assign p b in PVar x (w ++ rs) p'
+>           assign (PVar x w p) b = 
+>               case IM.lookup x b of
+>                  Nothing -> let p' = assign p b in PVar x w p'
+>                  Just rs -> let
+>                                 p' = assign p b 
+>                             in PVar x (w ++ rs) p'
 >           assign (PE r) _ = PE r
 >           assign (PPlus p1 p2) b = PPlus (assign p1 b) p2 -- we don't need to care about p2 since it is a p*
 >           assign (PPair p1 p2) b = PPair (assign p1 b) (assign p2 b)
@@ -207,7 +210,7 @@
 > toBinder p = IM.fromList (toBinderList p)
 
 > toBinderList :: Pat -> [(Int, [Range])]
-> toBinderList  (PVar i rs p) = [(i,rs)] ++ (toBinderList p)
+> toBinderList  (PVar i rs p) = [(i, rs)] ++ (toBinderList p)
 > toBinderList  (PPair p1 p2) = (toBinderList p1) ++ (toBinderList p2)
 > toBinderList  (PPlus p1 p2) = (toBinderList p1) 
 > toBinderList  (PStar p1 g)    = (toBinderList p1) 
@@ -229,7 +232,7 @@
 >                     -> Binder
 > updateBinderByIndex i pos binder = -- binder  
 >     IM.update (\ r -> case r of  -- we always initialize to [], we don't need to handle the key miss case
->                       { [] -> Just [(pos,pos)]
+>                       { [] -> Just [(pos,pos)] 
 >                       ; ((b,e):rs)
 >                           | pos == e + 1 -> Just ((b,e+1):rs)
 >                           | pos > e + 1  -> Just ((pos,pos):(b,e):rs)
