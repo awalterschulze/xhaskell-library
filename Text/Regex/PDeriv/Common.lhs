@@ -9,8 +9,10 @@
 >     , IsGreedy (..)
 >     , nub2
 >     , nub3
->     , minBinder
->     , maxBinder
+>     , preBinder
+>     , preBinder_
+>     , subBinder
+>     , mainBinder
 >     ) where
 
 > import Data.Char (ord)
@@ -126,10 +128,19 @@ the lookup function
 
 The smallest binder index capturing the prefix of the unanchored regex
 
-> minBinder :: Int
-> minBinder = 0
+> preBinder :: Int
+> preBinder = -1
+
+> preBinder_ :: Int
+> preBinder_ = -2
 
 The largest binder index capturing for the suffix of the unanchored regex
 
-> maxBinder :: Int
-> maxBinder = 2147483647
+> subBinder :: Int
+> subBinder = 2147483647
+
+
+The binder index capturing substring which matches by the unanchored regex
+
+> mainBinder :: Int
+> mainBinder = 0

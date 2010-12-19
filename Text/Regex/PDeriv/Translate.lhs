@@ -1,9 +1,10 @@
 > -- | A translation schema from the external syntax (ERE) to our interal syntax (xhaskell style pattern)
 > module Text.Regex.PDeriv.Translate 
->     ( translate ) where
+>     ( translate, translatePosix ) where
 
 > import Control.Monad.State -- needed for the translation scheme
 > import Data.Char (chr)
+> import qualified Data.IntMap as IM
 
 > import Text.Regex.PDeriv.ExtPattern
 > import Text.Regex.PDeriv.IntPattern
@@ -15,12 +16,19 @@
 > data TState = TState { ngi :: NGI   -- ^ negative group index
 >                      , gi :: GI     -- ^ (positive) group index
 >                      , anchorStart :: Bool
->                      , anchorEnd :: Bool } -- the state for trasslation
+>                      , anchorEnd :: Bool
+>                      , posix :: Bool -- ^ if posix, add binders to non-groups 
+>                      , posix_binder :: IM.IntMap () -- ^ keep tracks of posix binder
+>                      } -- the state for trasslation
 >             deriving Show
 
 
 > -- variables 0,-1,-2 are reserved for pre, main and post!
-> initTState = TState { ngi = -3, gi = 1, anchorStart = False, anchorEnd = False } 
+> initTState = TState { ngi = -3, gi = 1, anchorStart = False, anchorEnd = False, posix = False, posix_binder = IM.empty } 
+
+
+> initTStatePosix = TState { ngi = -3, gi = 1, anchorStart = False, anchorEnd = False, posix = True, posix_binder = IM.empty } 
+
 
 > type NGI = Int -- the non group index
 
@@ -72,6 +80,17 @@ getters and putters
 >                   ; put st{anchorEnd=True}
 >                   }
 
+> isPosix :: State TState Bool
+> isPosix = do { st <- get
+>              ; return (posix st)
+>              }
+
+> addPosixBinder :: Int -> State TState ()
+> addPosixBinder i = do { st <- get
+>                       ; let bs = posix_binder st
+>                             bs' = IM.insert i () bs
+>                       ; put st{posix_binder=bs'}
+>                       }
 
 > -- | Translating external pattern to internal pattern
 > translate :: EPat -> Pat
@@ -80,11 +99,30 @@ getters and putters
 >                    let hasAnchorS = anchorStart state
 >                        hasAnchorE = anchorEnd state
 >                    in case (hasAnchorS, hasAnchorE) of
->                       (True, True) -> pat -- PVar 0 [] pat 
->                       (True, False) -> PPair pat (PVar maxBinder [] (PE (Star Any NotGreedy)))
->                       (False, True) -> PPair (PVar minBinder [] (PE (Star Any NotGreedy))) pat
->                       (False, False) -> PPair (PVar minBinder [] (PE (Star Any NotGreedy))) (PPair pat (PVar maxBinder [] (PE (Star Any NotGreedy))))
->                       -- (False, False) -> (PPair (PPair (PVar (-1) [] (PE (Star Any NotGreedy))) pat) (PVar (-2) [] (PE (Star Any Greedy))))
+>                       (True, True)   -> PVar mainBinder [] pat 
+>                       (True, False)  -> PPair (PVar mainBinder [] pat) (PVar subBinder [] (PE (Star Any NotGreedy)))
+>                       (False, True)  -> PPair (PVar preBinder [] (PE (Star Any NotGreedy))) (PVar mainBinder [] pat)
+>                       -- (False, False) -> PPair (PPair (PVar preBinder [] (PE (Star Any NotGreedy))) (PVar mainBinder [] pat)) (PVar subBinder [] (PE (Star Any NotGreedy)))
+>                       -- (False, False) -> PPair (PVar preBinder_ [] (PPair (PVar preBinder [] (PE (Star Any NotGreedy))) (PVar mainBinder [] pat))) (PVar subBinder [] (PE (Star Any NotGreedy)))
+>                       (False, False) -> (PPair (PVar preBinder [] (PE (Star Any NotGreedy))) (PVar preBinder_ [] (PPair (PVar mainBinder [] pat) (PVar subBinder [] (PE (Star Any NotGreedy))))))
+
+
+> -- |  for posix 
+> translatePosix :: EPat -> (Pat,IM.IntMap ())
+> translatePosix epat = case runState (trans epat) initTStatePosix of
+>                  (pat, state) ->
+>                    let hasAnchorS = anchorStart state
+>                        hasAnchorE = anchorEnd state
+>                        posixBnd   = posix_binder state
+>                    in case (hasAnchorS, hasAnchorE) of
+>                       (True, True)   -> (PVar mainBinder [] pat, posixBnd)
+>                       (True, False)  -> (PPair (PVar mainBinder [] pat) (PVar subBinder [] (PE (Star Any NotGreedy))), posixBnd)
+>                       (False, True)  -> (PPair (PVar preBinder [] (PE (Star Any NotGreedy))) (PVar mainBinder [] pat), posixBnd)
+>                       -- (False, False) -> PPair (PPair (PVar preBinder [] (PE (Star Any NotGreedy))) (PVar mainBinder [] pat)) (PVar subBinder [] (PE (Star Any NotGreedy)))
+>                       -- (False, False) -> PPair (PVar preBinder_ [] (PPair (PVar preBinder [] (PE (Star Any NotGreedy))) (PVar mainBinder [] pat))) (PVar subBinder [] (PE (Star Any NotGreedy)))
+>                       (False, False) -> ((PPair (PVar preBinder [] (PE (Star Any NotGreedy))) (PVar preBinder_ [] (PPair (PVar mainBinder [] pat) (PVar subBinder [] (PE (Star Any NotGreedy)))))), posixBnd)
+
+
 
 > {-| 'trans' The top level translation scheme e ~> p
 >     There are two sub rules.
@@ -95,9 +133,21 @@ getters and putters
 > -}
 > trans :: EPat -> State TState Pat
 > trans epat | hasGroup epat = p_trans epat
->            | otherwise     = do { r <- r_trans epat
->                                 ; return (PE r)
->                                 }
+>            | otherwise     = 
+>                do 
+>                { is_posix <- isPosix 
+>                ; if is_posix 
+>                  then do 
+>                       { gi <- getIncGI
+>                       ; r <- r_trans epat
+>                       ; addPosixBinder gi
+>                       ; return (PVar gi [] (PE r))
+>                       }
+>                  else do 
+>                    { r <- r_trans epat
+>                    ; return (PE r)
+>                    }
+>                }
 
 
 > {-| 'p_trans' implementes the rule 'e ~>_p p'

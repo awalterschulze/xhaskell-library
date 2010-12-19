@@ -34,7 +34,7 @@ an emptiable pattern and the input word is fully consumed.
 
 > import Text.Regex.PDeriv.RE
 > import Text.Regex.PDeriv.Pretty (Pretty(..))
-> import Text.Regex.PDeriv.Common (Range, Letter, IsEmpty(..), my_hash, my_lookup, GFlag(..), IsEmpty(..), nub2, minBinder, maxBinder)
+> import Text.Regex.PDeriv.Common (Range, Letter, IsEmpty(..), my_hash, my_lookup, GFlag(..), IsEmpty(..), nub2, preBinder, mainBinder, subBinder)
 > import Text.Regex.PDeriv.IntPattern (Pat(..), pdPat, pdPat0, toBinder, Binder(..), strip, listifyBinder)
 > import Text.Regex.PDeriv.Parse
 > import qualified Text.Regex.PDeriv.Dictionary as D (Dictionary(..), Key(..), insert, insertNotOverwrite, lookupAll, empty, isIn, nub)
@@ -402,14 +402,15 @@ Compilation
 >  case greedyPatMatchCompiled r bs of
 >    Nothing -> Right (Nothing)
 >    Just env ->
->      let pre = case lookup minBinder env of { Just w -> w ; Nothing -> S.empty }
->          post = case lookup maxBinder env of { Just w -> w ; Nothing -> S.empty }
->          full_len = S.length bs
+>      let pre = case lookup preBinder env of { Just w -> w ; Nothing -> S.empty }
+>          post = case lookup subBinder env of { Just w -> w ; Nothing -> S.empty }
+>          {- full_len = S.length bs
 >          pre_len = S.length pre
 >          post_len = S.length post
 >          main_len = full_len - pre_len - post_len
 >          main_and_post = S.drop pre_len bs
->          main = main_and_post `seq` main_len `seq` S.take main_len main_and_post
+>          main = main_and_post `seq` main_len `seq` S.take main_len main_and_post -}
+>          main = case lookup mainBinder env of { Just w -> w ; Nothing -> S.empty }
 >          matched = map snd (filter (\(v,w) -> v > 0) env)
 >      in Right (Just (pre,main,post,matched))
 
@@ -508,3 +509,8 @@ pattern = <(x :: (0|...|9)+?)*, (y :: (0|...|9)+?)*, (z :: (0|...|9)+?)*>
 > p11 = PPair (PStar (PVar 1 [] (PE (Seq digits_re (Star digits_re Greedy)))) Greedy) (PPair (PStar (PVar 2 [] (PE (Seq digits_re (Star digits_re Greedy)))) Greedy) (PPair (PStar (PVar 3 [] (PE (Seq digits_re (Star digits_re Greedy)))) Greedy) (PStar (PVar 4 [] (PE (Seq digits_re (Star digits_re Greedy)))) Greedy)))
 
 > input11 = S.pack "1234567890123456789-"
+
+
+> Right up34 = compile defaultCompOpt defaultExecOpt (S.pack "(Ab|cD)*")
+
+> s34 = S.pack "aBcD"

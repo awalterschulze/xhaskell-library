@@ -1,5 +1,5 @@
 > {-# LANGUAGE FlexibleContexts #-}
-> module Text.Regex.PDeriv.Parse (parsePat) where
+> module Text.Regex.PDeriv.Parse (parsePat, parsePatPosix) where
 
 > {- By Kenny Zhuo Ming Lu and Martin Sulzmann, 2009. BSD3 -}
 
@@ -13,12 +13,13 @@ This parser is largely adapted from Text.Regex.TDFA.ReadRegex
 >                                      string, noneOf, digit, char, anyChar)
 > import Control.Monad(liftM, when, guard)
 > import Data.List (sort,nub)
+> import qualified Data.IntMap as IM
 > import qualified Data.ByteString.Char8 as S
 
 > import Text.Regex.PDeriv.ExtPattern (EPat(..))
 > import Text.Regex.PDeriv.IntPattern (Pat(..))
 > import Text.Regex.PDeriv.RE (RE(..))
-> import Text.Regex.PDeriv.Translate (translate) 
+> import Text.Regex.PDeriv.Translate (translate, translatePosix) 
 
 > type EState = ()
 > initEState = ()
@@ -36,6 +37,15 @@ This parser is largely adapted from Text.Regex.TDFA.ReadRegex
 >              { Left error -> Left error
 >              ; Right (epat, estate) -> Right (translate epat)
 >              }
+
+posix pattern parsing: we need to add binders everywhere
+
+> parsePatPosix :: String -> Either ParseError (Pat,IM.IntMap ())
+> parsePatPosix x = case parseEPat x of
+>                   { Left error -> Left error
+>                   ; Right (epat, estate) -> Right (translatePosix epat)
+>                   }
+
 
 > p_ere :: CharParser EState EPat
 > p_ere = liftM EOr $ sepBy1 p_branch (char '|')
