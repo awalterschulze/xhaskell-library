@@ -132,6 +132,27 @@ getters and putters
 >     which are fired depending on whether e has Group pattern (...) (i.e. pattern variable)
 > -}
 > trans :: EPat -> State TState Pat
+> trans epat = 
+>     do { is_posix <- isPosix -- if it is posix, we need to aggresively "tag" every sub expression with a binder
+>        ; if is_posix 
+>          then do 
+>            { gi <- getIncGI
+>            ; ipat <- trans' epat
+>            ; addPosixBinder gi
+>            ; return (PVar gi [] ipat)
+>            }
+>          else trans' epat
+>        }
+>     where trans' :: EPat -> State TState Pat
+>           trans' epat 
+>               | hasGroup epat = p_trans epat
+>               | otherwise     = do 
+>                                 { r <- r_trans epat
+>                                 ; return (PE r)
+>                                 }
+
+> {-
+> trans :: EPat -> State TState Pat
 > trans epat | hasGroup epat = p_trans epat
 >            | otherwise     = 
 >                do 
@@ -148,6 +169,8 @@ getters and putters
 >                    ; return (PE r)
 >                    }
 >                }
+> -}
+
 
 
 > {-| 'p_trans' implementes the rule 'e ~>_p p'
