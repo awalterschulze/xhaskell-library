@@ -4,6 +4,13 @@ A bytestring implementation of reg exp pattern matching using partial derivative
 This algorithm exploits the extension of partial derivative of regular expression patterns.
 This algorithm implements the POSIX matching policy proceeds by scanning the input word from right to left.
 
+The binding scheme for posix is slightly different from the other algos such as LeftToRight, etc. 
+say given input "ab" pattern "(x :: a), (y :: b)"
+the match result is { x -> (1,2) , y -> (2,3) } instead of 
+{ x -> (1,1), y -> (2,2) } (which was used in LeftToRight). 
+In Posix matching we need to use (n,n) to denote zero-length match which is used in resetting. 
+See resetLocalBnd below. Todo: we might want to update other algos to make it consistent
+
 > {-# LANGUAGE GADTs, MultiParamTypeClasses, FunctionalDependencies,
 >     FlexibleInstances, TypeSynonymInstances, FlexibleContexts #-} 
 
@@ -51,7 +58,7 @@ A word is a byte string.
 > type Word = S.ByteString
 
 > rg_collect :: S.ByteString -> (Int,Int) -> S.ByteString
-> rg_collect w (i,j) = S.take (j' - i' + 1) (S.drop i' w)
+> rg_collect w (i,j) = S.take (j' - i') (S.drop i' w)
 >	       where i' = fromIntegral i
 >	             j' = fromIntegral j
 
@@ -314,14 +321,15 @@ ASSUMPTION: the  var index in the pattern is linear. e.g. no ( 0 :: R1, (1 :: R2
 >                     -> Binder
 > updateBinderByIndex i pos binder = 
 >     case IM.lookup i binder of
->       { Nothing -> IM.insert i [(pos, pos)] binder
+>       { Nothing -> IM.insert i [(pos,pos+1)] binder
 >       ; Just ranges -> 
 >         case ranges of 
->         { [] -> IM.update (\_ -> Just [(pos,pos)]) i binder
+>         { [] -> IM.update (\_ -> Just [(pos,pos+1)]) i binder
 >         ; ((b,e):rs) 
+>           | b == e -> IM.update (\_ -> Just ((pos,pos+1):(b,e):rs)) i binder -- preserve the reset points (i,i)
 >           | pos == b - 1  -> IM.update (\_ -> Just ((b-1,e):rs)) i binder
->           | pos < (b - 1) -> IM.update (\_ -> Just ((pos,pos):(b,e):rs)) i binder
->           | otherwise     -> error "impossible, the current letter position is greater than the last recorded letter"
+>           | pos < (b - 1) -> IM.update (\_ -> Just ((pos,pos+1):(b,e):rs)) i binder
+>           | otherwise     -> error ("impossible, the current letter position is greater than the last recorded letter" ++ show i ++ show pos ++ show (b,e))
 >         }
 >       }
 
@@ -346,6 +354,7 @@ ASSUMPTION: the  var index in the pattern is linear. e.g. no ( 0 :: R1, (1 :: R2
 >     | otherwise = x:(updateBinderByIndexSub pos idx xs)
 > -}
 
+> {-
 > resetLocalBnd :: Pat -> Binder -> Binder
 > resetLocalBnd p b = 
 >   let vs = getVars p
@@ -355,19 +364,28 @@ ASSUMPTION: the  var index in the pattern is linear. e.g. no ( 0 :: R1, (1 :: R2
 >                              case IM.lookup i b' of
 >                                { Nothing -> b'
 >                                ; Just [] -> IM.update (\r -> Just r) i b'
->                                ; Just ((s,e):_) -> IM.update (\r -> Just ((s,(s-1)):r)) i b'
+>                                ; Just ((s,e):_) -> IM.update (\r -> Just ((s, s-1):r)) i b'
 >                                }) b is
 >                                                       
-> {-
->     where aux :: [Int] -> Binder -> Binder
->           aux vs [] = []
->           aux vs ((b@(x,r)):bs) | x `elem` vs = 
->                                     case r of 
->                                       { []        -> (b:(aux vs bs))
->                                       ; ((s,e):_) -> ((x, (s,(s-1)):r):(aux vs bs))
->                                       } 
->                                 | otherwise   =  (b:(aux vs bs))
 > -}
+
+
+> resetLocalBnd :: Pat -> Int -> Binder -> Binder
+> resetLocalBnd p j b = 
+>   let vs = getVars p
+>       x = aux vs b 
+>       io = logger (print j) `seq` logger (print b) `seq` logger (print x)
+>   in -- io `seq` 
+>      x
+>      where aux :: [Int] -> Binder -> Binder
+>            aux is b = foldl (\b' i -> 
+>                              case IM.lookup i b' of
+>                                { Nothing -> b'
+>                                ; Just [] -> IM.update (\r -> Just [(j, j)]) i b'
+>                                ; Just ((s,e):ses) -> IM.update (\r -> Just ((j,j):(s,e):ses)) i b'
+>                                }) b is
+>                                                       
+
 
 retrieve all variables appearing in p
 
@@ -397,8 +415,9 @@ In case of p* we reset in the local binding.
 >     in if null pds then []
 >        else [ (PE (resToRE pds), ( \_ -> id ), True) ]
 > pdPat0 (PStar p g) l = let pfs = pdPat0 p l
->                            reset  = resetLocalBnd p -- restart all local binder in variables in p
->                        in [ (PPair p' (PStar p g), (\ i -> reset . (f i) ), True) | (p', f, _) <- pfs ]
+>                            reset = resetLocalBnd p -- restart all local binder in variables in p
+>                        in [ (PPair p' (PStar p g), (\ i -> (reset i) . (f i) ) , True) | (p', f, _) <- pfs ]
+>                      --  in [ (PPair p' (PStar p g), (\ i -> reset . (f i) ), True) | (p', f, _) <- pfs ]
 >                      -- in [ (PPlus p' (PStar p), f) | (p', f) <- pfs ]
 > {-
 > pdPat0 (PPlus p1 p2@(PStar _)) l  -- we drop this case since it make difference with the PPair
@@ -529,7 +548,7 @@ In case of p* we reset in the local binding.
 >         fs' = w' `seq` fs `seq`  l `seq` pdStateTable `seq` (patMatchesIntStatePdPat0Rev (l-1) pdStateTable w' fs)
 >         -- fs'' = fs' `seq` my_sort fs'
 >         allbinders = fs' `seq` [  b' | (s,b',_,_) <- fs', s == 0 ]
->         io = logger (print $ show allbinders)
+>         io = logger (print $ show b) `seq` logger (print $ show allbinders)
 >     in -- io `seq` 
 >            allbinders `seq` map (binderToMatchArray l fb posixBnd) allbinders
 
@@ -553,20 +572,21 @@ In case of p* we reset in the local binding.
 >         mbPrefixB = IM.lookup preBinder b
 >         mbSubfixB = IM.lookup subBinder b
 >         mainB     = case (mbPrefixB, mbSubfixB) of
->                       (Just [(_,x)], Just [(y,_)]) -> (x + 1, y - (x + 1))
->                       (Just [(_,x)], _)            -> (x + 1, l - (x + 1))
+>                       (Just [(_,x)], Just [(y,_)]) -> (x, y - x)
+>                       (Just [(_,x)], _)            -> (x, l - x)
 >                       (_, Just [(y,_)])            -> (0, y) 
 >                       (_, _)                       -> (0, l)
 >                       _                            -> error (show (mbPrefixB, mbSubfixB) ) 
 >         rs        = map snd subPatB      
->         rs'       = map (\r -> case r of { (_:_) -> fromRange (last r) ; [] -> (-1,0) } ) rs
->         
->         {- (_,rs')   = foldl (\(i,xs) r -> case r of { (_:_) -> let x@(start,len) = fromRange (last r) 
->                                                              in  (start + len, xs ++ [x])
->                                                   ; []    -> (i, xs ++ [(i,0)]) } ) (0,[]) rs -}
->     in listToArray (mainB:rs')
->     where fromRange (b,e) = (b, e-b+1)
->                             
+>         rs'       = map lastNonEmpty rs
+>         io = logger (print $ "\n" ++ show rs ++ " || " ++ show rs' ++ "\n")
+>     in -- io `seq` 
+>        listToArray (mainB:rs')
+>     where fromRange (b,e) = (b, e-b) 
+>           -- chris' test cases requires us to get the last result even if it is a reset point,
+>           -- e.g. input:"aaa"	 pattern:"((..)|(.))*" expected match:"(0,3)(2,3)(-1,-1)(2,3)" note that (..) matches with [(0,2),(2,2)], we return [(2,2)]
+>           lastNonEmpty [] = (-1,0)
+>           lastNonEmpty rs = fromRange (last rs)
 
 > listToArray l = listArray (0,length l-1) l
 
@@ -711,10 +731,21 @@ Right up27 = compile defaultCompOpt defaultExecOpt (S.pack "^(.*?)((ab|abab)(.*)
 > s27 = S.pack "abbabab"
 
 
-
-
 > Right up11 = compile defaultCompOpt defaultExecOpt (S.pack ".*(.*)") 
 
-
 > s11 = S.pack "ab"
+
+> Right up8' = compile defaultCompOpt defaultExecOpt (S.pack "((..)|(.))*") 
+
+> s8' = S.pack "aaa"
+
+
+> Right up8'' = compile defaultCompOpt defaultExecOpt (S.pack "^((a)|(b))*$") 
+
+> s8'' = S.pack "aba"
+
+
+> Right up0' = compile defaultCompOpt defaultExecOpt (S.pack "(a|ab|c|bcd)*(d*)") 
+
+> s0' = S.pack "ababcd"
 
