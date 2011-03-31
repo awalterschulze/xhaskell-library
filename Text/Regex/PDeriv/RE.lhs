@@ -7,7 +7,7 @@
 > import Data.List (nub)
 > import Data.Char (chr)
 
-> import Text.Regex.PDeriv.Common (IsEmpty(..), IsGreedy(..), GFlag(..))
+> import Text.Regex.PDeriv.Common (PosEpsilon(..), IsEpsilon(..), IsPhi(..), Simplifiable(..), IsGreedy(..), GFlag(..))
 > import Text.Regex.PDeriv.Dictionary (Key(..), primeL, primeR)
 
 ------------------------
@@ -30,7 +30,7 @@
 >     (==) (Seq r1 r2) (Seq r3 r4) = (r1 == r3) && (r2 == r4)
 >     (==) (Star r1 g1) (Star r2 g2) = g1 == g2 && r1 == r2 
 >     (==) Any Any = True
->     (==) (Not cs) (Not cs') = cs == cs'
+>     (==) (Not cs) (Not cs') = cs == cs' 
 >     (==) _ _ = False
 
 
@@ -85,17 +85,39 @@
 > resToRE (r:res) = foldl (\x y -> Choice x y Greedy) r res
 > resToRE [] = Phi
 
-> -- | function 'isEmpty' checks whether regular expressions are empty
-> instance IsEmpty RE where
->   isEmpty Phi = False
->   isEmpty Empty = True
->   isEmpty (Choice r1 r2 g) = (isEmpty r1) || (isEmpty r2)
->   isEmpty (Seq r1 r2) = (isEmpty r1) && (isEmpty r2)
->   isEmpty (Star r g) = True
->   isEmpty (L _) = False
->   isEmpty Any = False
->   isEmpty (Not _) = False
+
+> instance PosEpsilon RE where
+>   posEpsilon Phi = False
+>   posEpsilon Empty = True
+>   posEpsilon (Choice r1 r2 g) = (posEpsilon r1) || (posEpsilon r2)
+>   posEpsilon (Seq r1 r2) = (posEpsilon r1) && (posEpsilon r2)
+>   posEpsilon (Star r g) = True
+>   posEpsilon (L _) = False
+>   posEpsilon Any = False
+>   posEpsilon (Not _) = False
         
+
+> -- | function 'isEpsilon' checks whether epsilon = r
+> instance IsEpsilon RE where
+>   isEpsilon Phi = False
+>   isEpsilon Empty = True
+>   isEpsilon (Choice r1 r2 g) = (isEpsilon r1) && (isEpsilon r2)
+>   isEpsilon (Seq r1 r2) = (isEpsilon r1) && (isEpsilon r2)
+>   isEpsilon (Star Phi g) = True
+>   isEpsilon (Star r g) = isEpsilon r
+>   isEpsilon (L _) = False
+>   isEpsilon Any = False
+>   isEpsilon (Not _) = False
+
+> instance IsPhi RE where
+>   isPhi Phi = True
+>   isPhi Empty = False
+>   isPhi (Choice r1 r2 g) = (isPhi r1) && (isPhi r2)
+>   isPhi (Seq r1 r2) = (isPhi r1) || (isPhi r2)
+>   isPhi (Star r g) = False
+>   isPhi (L _) = False
+>   isPhi Any = False
+>   isPhi (Not _) = False
 
 > -- | function 'partDeriv' implements the partial derivative operations for regular expressions. We don't pay attention to the greediness flag here.
 > partDeriv :: RE -> Char -> [RE]
@@ -115,22 +137,22 @@
 >     let 
 >         s1 = partDerivSub r1 l 
 >         s2 = partDerivSub r2 l
->     in {- s1 `seq` s2 `seq` -} (s1 ++ s2)
+>     in s1 `seq` s2 `seq` (s1 ++ s2)
 > partDerivSub (Seq r1 r2) l 
->     | isEmpty r1 = 
+>     | posEpsilon r1 = 
 >           let 
 >               s0 = partDerivSub r1 l
 >               s1 = s0 `seq` [ (Seq r1' r2) | r1' <- s0 ]
 >               s2 = partDerivSub r2 l
->           in {- s1 `seq` s2 `seq` -} (s1 ++ s2)
+>           in s1 `seq` s2 `seq` (s1 ++ s2)
 >     | otherwise = 
 >         let 
 >             s0 = partDerivSub r1 l 
->         in {- s0 `seq` -} [ (Seq r1' r2) | r1' <- s0 ]
+>         in s0 `seq` [ (Seq r1' r2) | r1' <- s0 ]
 > partDerivSub (Star r g) l = 
 >     let
 >         s0 = partDerivSub r l
->     in {- s0 `seq` -} [ (Seq r' (Star r g)) | r' <- s0 ]
+>     in s0 `seq` [ (Seq r' (Star r g)) | r' <- s0 ]
 
 > -- | function 'sigmaRE' returns all characters appearing in a reg exp.
 > sigmaRE :: RE -> [Char]
@@ -146,3 +168,26 @@
 > sigmaREsub Phi = []
 > sigmaREsub Empty = []
 
+> instance Simplifiable RE where
+>     simplify (L l) = L l
+>     simplify Any   = Any
+>     simplify (Not cs) = Not cs
+>     simplify (Seq r1 r2) = 
+>         let r1' = simplify r1
+>             r2' = simplify r2
+>         in if isEpsilon r1'
+>            then r2'
+>            else if isEpsilon r2'
+>                 then r1'
+>                 else Seq r1' r2'
+>     simplify (Choice r1 r2 g) = 
+>         let r1' = simplify r1
+>             r2' = simplify r2
+>         in if isPhi r1'
+>            then r2'
+>            else if isPhi r2'
+>                 then r1'
+>                 else Choice r1' r2' g
+>     simplify (Star r g) = Star (simplify r) g
+>     simplify Phi = Phi
+>     simplify Empty = Empty

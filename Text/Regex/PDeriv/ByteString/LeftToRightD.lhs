@@ -27,6 +27,10 @@ an emptiable pattern and the input word is fully consumed.
 > import qualified Data.ByteString.Char8 as S
 > import Control.DeepSeq
 
+> -- import Control.Parallel 
+> -- import Control.Parallel.Strategies hiding (Seq)
+
+
 > import System.IO.Unsafe (unsafePerformIO)
 
 > import Text.Regex.Base(RegexOptions(..))
@@ -34,8 +38,8 @@ an emptiable pattern and the input word is fully consumed.
 
 > import Text.Regex.PDeriv.RE
 > import Text.Regex.PDeriv.Pretty (Pretty(..))
-> import Text.Regex.PDeriv.Common (Range, Letter, IsEmpty(..), my_hash, my_lookup, GFlag(..), IsEmpty(..), nub2, preBinder, mainBinder, subBinder)
-> import Text.Regex.PDeriv.IntPattern (Pat(..), pdPat, pdPat0, toBinder, Binder(..), strip, listifyBinder)
+> import Text.Regex.PDeriv.Common (Range, Letter, PosEpsilon(..), Simplifiable(..), my_hash, my_lookup, GFlag(..), nub2, preBinder, mainBinder, subBinder)
+> import Text.Regex.PDeriv.IntPattern (Pat(..), pdPat, pdPat0, pdPat0Sim, toBinder, Binder(..), strip, listifyBinder)
 > import Text.Regex.PDeriv.Parse
 > import qualified Text.Regex.PDeriv.Dictionary as D (Dictionary(..), Key(..), insert, insertNotOverwrite, lookupAll, empty, isIn, nub)
 
@@ -71,7 +75,7 @@ A function that builds the above table from the pattern
 >     let sig = map (\x -> (x,0)) (sigmaRE (strip init))                              -- the sigma
 >         init_dict = D.insertNotOverwrite (D.hash init) (init,0) D.empty             -- add init into the initial dictionary
 >         (all, delta, dictionary) = sig `seq` builder sig [] [] [init] init_dict 1   -- all states and delta
->         final = all `seq`  [ s | s <- all, isEmpty (strip s)]                       -- the final states
+>         final = all `seq`  [ s | s <- all, posEpsilon (strip s)]                       -- the final states
 >         sfinal = final `seq` dictionary `seq` map (mapping dictionary) final
 >         lists = [ (i,l,jfs) | 
 >                   (p,l, qfs) <- delta, 
@@ -112,7 +116,7 @@ Some helper functions used in buildPdPat0Table
 >     | otherwise = 
 >         let 
 >             all_sofar_states = acc_states ++ curr_states
->             new_delta = [ (s, l, sfs) | s <- curr_states, l <- sig, let sfs = pdPat0 s l]
+>             new_delta = [ (s, l, sfs) | s <- curr_states, l <- sig, let sfs = pdPat0Sim s l]
 >             new_states = all_sofar_states `seq` D.nub [ s' | (_,_,sfs) <- new_delta, (s',f) <- sfs
 >                                                       , not (s' `D.isIn` dict) ]
 >             acc_delta_next  = (acc_delta ++ new_delta)
@@ -142,7 +146,7 @@ Technical problem, how to hash a [ Int ] in Haskell?
 >         -- building the NFA
 >         init_dict = D.insertNotOverwrite (D.hash init) (init,0) D.empty             -- add init into the initial dictionary
 >         (all, delta, dictionary) = sig `seq` builder sig [] [] [init] init_dict 1   -- all states and delta
->         final = all `seq`  [ s | s <- all, isEmpty (strip s)]                       -- the final states
+>         final = all `seq`  [ s | s <- all, posEpsilon (strip s)]                       -- the final states
 >         sfinal = final `seq` dictionary `seq` map (mapping dictionary) final
 >         lists = dictionary `seq` 
 >                 [ (i,l,jfs) | 
@@ -282,20 +286,20 @@ or able to come out a smallish example)
 > patMatchesIntStatePdPat1 cnt dStateTable  w' [] = []
 > patMatchesIntStatePdPat1 cnt dStateTable  w' currNfaStateBinders =
 >     case {-# SCC "uncons" #-} S.uncons w' of 
->       Nothing -> currNfaStateBinders
+>       Nothing -> currNfaStateBinders -- we are done with the matching
 >       Just (l,w) -> 
->           let ((i,_,_):_) = currNfaStateBinders
+>           let ((i,_,_):_) = currNfaStateBinders  -- i is the current DFA state
 >               k           = {-# SCC "k" #-} l `seq` i `seq` my_hash i l
 >           in
 >           case k `seq` IM.lookup k dStateTable of
->             { Nothing -> [] -- key miss means some letter exists in w but not in r.    
+>             { Nothing -> [] -- "key missing" which means some letter exists in w but not in r.    
 >             ; Just (j,next_nfaStates,fDict) -> 
 >                 let -- 
 >                     binders = {-# SCC "binders" #-} -- io `seq`
 >                               currNfaStateBinders `seq` fDict `seq`  
 >                               concatMap' ( \ (_,m,b) -> case IM.lookup m fDict of 
 >                                                        Nothing -> []
->                                                        Just fs -> b `seq` map (\f -> f cnt b) fs ) currNfaStateBinders 
+>                                                        Just fs -> b `seq` fs `seq` map (\f -> f cnt b) fs ) currNfaStateBinders 
 >                     nextNfaStateBinders = {-# SCC "nextNfaStateBinders" #-} -- io `seq` 
 >                                           binders `seq` next_nfaStates `seq` j `seq`
 >                                           map (\(x,y) -> (j,x,y)) (zip next_nfaStates binders)
@@ -303,8 +307,16 @@ or able to come out a smallish example)
 >                 in nextNfaStateBinders `seq` cnt' `seq` w `seq`
 >                        patMatchesIntStatePdPat1 cnt' dStateTable w  nextNfaStateBinders } 
 
+> {-
+> concatMap' :: (a -> [b]) -> [a] -> [b]
+> concatMap' f x = reverse $ foldr ( \ b a -> (++) (f b) $! a) [] x                                
+> -}
+
+> 
 > concatMap' :: (a -> [b]) -> [a] -> [b]
 > concatMap' f x = foldr' ( \ b a -> (++) a $! (f b) ) [] x
+> 
+
 
 > foldr' :: (a -> b -> b) -> b -> [a] -> b
 > foldr' f b [] = b
@@ -386,7 +398,7 @@ Compilation
 >     Left err -> Left ("parseRegex for Text.Regex.PDeriv.ByteString failed:"++show err)
 >     Right pat -> Right (patToRegex pat compOpt execOpt)
 >     where 
->       patToRegex p _ _ = Regex (compilePat p)
+>       patToRegex p _ _ = Regex (compilePat $ simplify p)
 
 
 
@@ -398,7 +410,7 @@ Compilation
 > regexec :: Regex      -- ^ Compiled regular expression
 >        -> S.ByteString -- ^ ByteString to match against
 >        -> Either String (Maybe (S.ByteString, S.ByteString, S.ByteString, [S.ByteString]))
-> regexec (Regex r) bs =
+> regexec (Regex r) bs = -- r `seq` Right Nothing
 >  case greedyPatMatchCompiled r bs of
 >    Nothing -> Right (Nothing)
 >    Just env ->
@@ -413,7 +425,6 @@ Compilation
 >          main = case lookup mainBinder env of { Just w -> w ; Nothing -> S.empty }
 >          matched = map snd (filter (\(v,w) -> v > 0) env)
 >      in Right (Just (pre,main,post,matched))
-
 
 > -- | Control whether the pattern is multiline or case-sensitive like Text.Regex and whether to
 > -- capture the subgroups (\1, \2, etc).  Controls enabling extra anchor syntax.
