@@ -2,7 +2,10 @@
 > module Text.Regex.PDeriv.Common 
 >     ( Range
 >     , Letter
->     , IsEmpty (..)
+>     , PosEpsilon (..)
+>     , IsEpsilon (..)
+>     , IsPhi (..)
+>     , Simplifiable (..)
 >     , my_hash
 >     , my_lookup
 >     , GFlag (..)
@@ -25,8 +28,21 @@
 > -- | a character and its index (position)
 > type Letter = (Char,Int)     
 
-> class IsEmpty a where
->     isEmpty :: a -> Bool
+> -- | test for 'epsilon \in a' epsilon-possession
+> class PosEpsilon a where
+>     posEpsilon :: a -> Bool
+
+> -- | test for epsilon == a
+> class IsEpsilon a where
+>     isEpsilon :: a -> Bool
+
+> -- | test for \phi == a
+> class IsPhi a where
+>     isPhi :: a -> Bool
+
+> class Simplifiable a where
+>     simplify :: a -> a
+
 
 > my_hash :: Int -> Char -> Int
 > my_hash i x = (ord x) + 256 * i
@@ -101,7 +117,7 @@ the lookup function
 > nub3subsimple im [ x ] = [ x ]
 > nub3subsimple im (x@(k,f,0):xs) = x:(nub3subsimple im xs)
 > nub3subsimple im (x@(k,f,1):xs) = let im' = IM.insert k () im
->                                   in x:(nub3subsimple im' xs)
+>                                   in im' `seq` x:(nub3subsimple im' xs)
 > nub3subsimple im (x@(k,f,n):xs) = case IM.lookup k im of 
 >                                   Just _ -> nub3subsimple im xs
 >                                   Nothing -> let im' = IM.insert k () im

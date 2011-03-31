@@ -134,7 +134,7 @@ getters and putters
 > trans :: EPat -> State TState Pat
 > trans epat = 
 >     do { is_posix <- isPosix -- if it is posix, we need to aggresively "tag" every sub expression with a binder
->        ; if is_posix 
+>        ; if is_posix && isStructural epat
 >          then do 
 >            { gi <- getIncGI
 >            ; ipat <- trans' epat
@@ -143,13 +143,21 @@ getters and putters
 >            }
 >          else trans' epat
 >        }
->     where trans' :: EPat -> State TState Pat
->           trans' epat 
->               | hasGroup epat = p_trans epat
->               | otherwise     = do 
->                                 { r <- r_trans epat
->                                 ; return (PE r)
->                                 }
+>     where isStructural :: EPat -> Bool -- ^ indicate whether it is a complex structure which we need to add extra binding for POSIX tracking
+>           isStructural (EOr _)     = True
+>           isStructural (EConcat _) = True                                                                      
+>           isStructural (EOpt _ _)  = True
+>           isStructural (EPlus _ _) = True
+>           isStructural (EStar _ _) = True
+>           isStructural _           = False                                                                      
+
+> trans' :: EPat -> State TState Pat
+> trans' epat 
+>      | hasGroup epat = p_trans epat
+>      | otherwise     = do 
+>                 { r <- r_trans epat
+>                 ; return (PE r)
+>                 }
 
 > {-
 > trans :: EPat -> State TState Pat
@@ -192,7 +200,8 @@ getters and putters
 >       -}
 >     ; EGroup e ->
 >       do { i <- getIncGI
->          ; p <- trans e
+>          ; -- p <- trans e
+>          ; p <- trans' e -- no need to go through trans which possible tag p with a posix var
 >          ; return ( PVar i [] p)
 >          }
 >     ; EOr es -> 

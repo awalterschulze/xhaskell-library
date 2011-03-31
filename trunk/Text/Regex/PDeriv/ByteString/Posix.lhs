@@ -43,7 +43,7 @@ See resetLocalBnd below. Todo: we might want to update other algos to make it co
 
 > import Text.Regex.PDeriv.RE
 > import Text.Regex.PDeriv.Pretty (Pretty(..))
-> import Text.Regex.PDeriv.Common (Range, Letter, IsEmpty(..), my_hash, my_lookup, GFlag(..), IsEmpty(..), IsGreedy(..), preBinder, subBinder, mainBinder)
+> import Text.Regex.PDeriv.Common (Range, Letter, PosEpsilon(..), my_hash, my_lookup, GFlag(..), IsGreedy(..), preBinder, subBinder, mainBinder)
 > import Text.Regex.PDeriv.IntPattern (Pat(..), pdPat, toBinder, Binder(..), strip, listifyBinder)
 > import Text.Regex.PDeriv.Parse
 > import qualified Text.Regex.PDeriv.Dictionary as D (Dictionary(..), Key(..), insertNotOverwrite, lookupAll, empty, isIn, nub)
@@ -82,7 +82,7 @@ A function that builds the above table from the input pattern
 >     let sig = map (\x -> (x,0)) (sigmaRE (strip init))         --  the sigma
 >         init_dict = D.insertNotOverwrite (D.hash init) (init,0) D.empty         --  add init into the initial dictionary
 >         (all, delta, dictionary) = sig `seq` builder sig [] [] [init] init_dict 1   --  all states and delta
->         final = all `seq`  [ s | s <- all, isEmpty (strip s)]                   --  the final states
+>         final = all `seq`  [ s | s <- all, posEpsilon (strip s)]                   --  the final states
 >         sfinal = final `seq` dictionary `seq` map (mapping dictionary) final
 >         lists = delta `seq` dictionary `seq` [ (j, l, (i,f,flag,gf)) | (p,l,f,q,flag,gf) <- delta, 
 >                                                let i = mapping dictionary p  
@@ -154,7 +154,7 @@ A function that builds the above table from the input pattern
 > lookupPdPat0' :: PdPat0TableRev -> (Int,Binder) -> Letter -> [(Int,Binder,Int,Bool)]
 > lookupPdPat0' hash_table (i,b) (l,x) = 
 >     case IM.lookup (my_hash i l) hash_table of
->     Just quatripples -> [ (j, op x b, p, gf) | (j, op, p, gf) <- quatripples ]
+>     Just quatripples -> [ b' `seq` (j, b', p, gf) | (j, op, p, gf) <- quatripples, let b' =  op x b ]
 >     Nothing -> []
  
 > {- | map pattern variable to greedy flag
@@ -314,12 +314,13 @@ A function that builds the above table from the input pattern
 
 a function that updates the binder given an index (that is the pattern var)
 ASSUMPTION: the  var index in the pattern is linear. e.g. no ( 0 :: R1, (1 :: R2, 2 :: R3))
+The update start from the last pos of the input string, ending with the first pos of the input.
 
 > updateBinderByIndex :: Int 
 >                     -> Int 
 >                     -> Binder 
 >                     -> Binder
-> updateBinderByIndex i pos binder = 
+> updateBinderByIndex i pos binder = -- binder {-
 >     case IM.lookup i binder of
 >       { Nothing -> IM.insert i [(pos,pos+1)] binder
 >       ; Just ranges -> 
@@ -331,7 +332,7 @@ ASSUMPTION: the  var index in the pattern is linear. e.g. no ( 0 :: R1, (1 :: R2
 >           | pos < (b - 1) -> IM.update (\_ -> Just ((pos,pos+1):(b,e):rs)) i binder
 >           | otherwise     -> error ("impossible, the current letter position is greater than the last recorded letter" ++ show i ++ show pos ++ show (b,e))
 >         }
->       }
+>       } -- -}
 
 > {-
 > updateBinderByIndex :: Int    -- ^ pattern variable index
@@ -421,11 +422,11 @@ In case of p* we reset in the local binding.
 >                      -- in [ (PPlus p' (PStar p), f) | (p', f) <- pfs ]
 > {-
 > pdPat0 (PPlus p1 p2@(PStar _)) l  -- we drop this case since it make difference with the PPair
->        | isEmpty (strip p1) = [ (PPlus p3 p2, f) | (p3,f) <- pdPat0 p1 l ] ++ (pdPat0 p2 l) -- simply drop p1 since it is empty
+>        | posEpsilon (strip p1) = [ (PPlus p3 p2, f) | (p3,f) <- pdPat0 p1 l ] ++ (pdPat0 p2 l) -- simply drop p1 since it is empty
 >        | otherwise = [ (PPlus p3 p2, f) | (p3,f) <- pdPat0 p1 l ] 
 > -}
 > pdPat0 (PPair p1 p2) l = 
->     if (isEmpty (strip p1))
+>     if (posEpsilon (strip p1))
 >     then if isGreedy p1
 >          then nub3 ([ (PPair p1' p2, f, True) | (p1' , f, _ ) <- pdPat0 p1 l ] ++ (pdPat0 p2 l))
 >          else nub3 ((pdPat0 p2 l) ++ [ (PPair p1' p2, f, False) | (p1' , f, _) <- pdPat0 p1 l ])

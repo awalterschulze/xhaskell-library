@@ -1,5 +1,5 @@
 Name:                   regex-pderiv
-Version:                0.0.9
+Version:                0.1.0
 License:                BSD3
 License-File:           LICENSE
 Copyright:              Copyright (c) 2010, Kenny Zhuo Ming Lu and Martin Sulzmann
@@ -18,7 +18,8 @@ Cabal-Version:          >= 1.2.3
 flag base4
 
 library 
-  Build-Depends:        regex-base >= 0.93.1, parsec, mtl, containers, bytestring, deepseq, bitset
+  Build-Depends:        regex-base >= 0.93.1, parsec, mtl, containers, bytestring, deepseq
+  Build-Depends:	bitset
   Build-Depends:         base >= 4.0 && < 5.0, ghc-prim
   Exposed-Modules:       Text.Regex.PDeriv.ByteString
                          Text.Regex.PDeriv.ByteString.TwoPasses
@@ -38,5 +39,5 @@ library
                          Text.Regex.PDeriv.Dictionary
   Buildable:              True
   Extensions:             GADTs, MultiParamTypeClasses, FunctionalDependencies, FlexibleInstances, TypeSynonymInstances, FlexibleContexts
-  GHC-Options:            
+  GHC-Options:            -threaded
   GHC-Prof-Options:       -auto-all

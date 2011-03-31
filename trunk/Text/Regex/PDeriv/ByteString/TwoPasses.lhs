@@ -33,8 +33,8 @@ failures states as long as we cannot find them in the sets.
 
 > import Text.Regex.PDeriv.RE
 > import Text.Regex.PDeriv.Pretty (Pretty(..))
-> import Text.Regex.PDeriv.Common (Range, Letter, IsEmpty(..), my_hash, my_lookup, GFlag(..), IsGreedy(..), nub2, preBinder, mainBinder, subBinder)
-> import Text.Regex.PDeriv.IntPattern (Pat(..), pdPat, pdPat0, toBinder, Binder(..), strip, listifyBinder)
+> import Text.Regex.PDeriv.Common (Range, Letter, PosEpsilon(..), Simplifiable(..), my_hash, my_lookup, GFlag(..), IsGreedy(..), nub2, preBinder, mainBinder, subBinder)
+> import Text.Regex.PDeriv.IntPattern (Pat(..), pdPat, pdPat0, pdPat0Sim, toBinder, Binder(..), strip, listifyBinder)
 > import Text.Regex.PDeriv.Parse
 > import qualified Text.Regex.PDeriv.Dictionary as D (Dictionary(..), Key(..), insertNotOverwrite, lookupAll, empty, isIn, nub)
 
@@ -105,7 +105,7 @@ we also record the reverse transition in another hash table, which will be used 
 >     let sig = map (\x -> (x,0)) (sigmaRE (strip init))         --  the sigma
 >         init_dict = D.insertNotOverwrite (D.hash init) (init,0) D.empty         --  add init into the initial dictionary
 >         (all, delta, dictionary) = sig `seq` builder sig [] [] [init] init_dict 1   --  all states and delta
->         final = all `seq`  [ s | s <- all, isEmpty (strip s)]                   --  the final states
+>         final = all `seq`  [ s | s <- all, posEpsilon (strip s)]                   --  the final states
 >         sfinal = final `seq` dictionary `seq` map (mapping dictionary) final
 >         sdelta = [ (i,l,jfs) | 
 >                   (p,l, qfs) <- delta, 
@@ -156,7 +156,7 @@ Some helper functions used in buildPdPat0Table
 >     | otherwise = 
 >         let 
 >             all_sofar_states = acc_states ++ curr_states
->             new_delta = [ (s, l, sfs) | s <- curr_states, l <- sig, let sfs = pdPat0 s l]
+>             new_delta = [ (s, l, sfs) | s <- curr_states, l <- sig, let sfs = pdPat0Sim s l]
 >             new_states = all_sofar_states `seq` D.nub [ s' | (_,_,sfs) <- new_delta, (s',f) <- sfs
 >                                                       , not (s' `D.isIn` dict) ]
 >             acc_delta_next  = (acc_delta ++ new_delta)
@@ -259,7 +259,7 @@ Some helper functions used in buildPdPat0Table
 >     Left err -> Left ("parseRegex for Text.Regex.PDeriv.ByteString failed:"++show err)
 >     Right pat -> Right (patToRegex pat compOpt execOpt)
 >     where 
->       patToRegex p _ _ = Regex (compilePat p)
+>       patToRegex p _ _ = Regex (compilePat $ simplify p)
 
 
 

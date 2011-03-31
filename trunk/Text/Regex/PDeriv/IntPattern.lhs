@@ -9,13 +9,14 @@
 >     , listifyBinder
 >  --  , updateBinderByIndex
 >     , pdPat0
+>     , pdPat0Sim
 >     , nub2
 >     )
 >     where
 
 > import Data.List
 > import qualified Data.IntMap as IM
-> import Text.Regex.PDeriv.Common (Range, Letter, IsEmpty(..), GFlag(..), IsGreedy(..) )
+> import Text.Regex.PDeriv.Common (Range, Letter, PosEpsilon(..), IsEpsilon(..), IsPhi(..), GFlag(..), IsGreedy(..), Simplifiable(..) )
 > import Text.Regex.PDeriv.RE
 > import Text.Regex.PDeriv.Dictionary (Key(..), primeL, primeR)
 > import Text.Regex.PDeriv.Pretty
@@ -99,7 +100,7 @@
 > mkEmpPat :: Pat -> Pat
 > mkEmpPat (PVar x w p) = PVar x w (mkEmpPat p)
 > mkEmpPat (PE r) 
->   | isEmpty r = PE Empty
+>   | posEpsilon r = PE Empty
 >   | otherwise = PE Phi
 > mkEmpPat (PStar p g) = PE Empty -- problematic?! we are losing binding (x,()) from  ( x : a*) ~> PE <>
 > mkEmpPat (PPlus p1 p2) = mkEmpPat p1 -- since p2 must be pstar we drop it. If we mkEmpPat p2, we need to deal with pdPat (PPlus (x :<>) (PE <>)) l
@@ -140,7 +141,7 @@
 >     first sub pattern is non-greedy. We simply swap the order of the 
 >     'choices' in the resulting pds. -} 
 > pdPat (PPair p1 p2) l = 
->   if (isEmpty (strip p1))
+>   if (posEpsilon (strip p1))
 >   then  if isGreedy p1
 >         then nub ([ PPair p1' p2 | p1' <- pdPat p1 l] ++ 
 >                   [ PPair (mkEmpPat p1) p2' | p2' <- pdPat p2 l])
@@ -159,7 +160,7 @@
 >     Shall we swap the order of the alternatives when p' is non-greedy?
 >     Why not? This seems harmless since we have already made some progress by pushing l into p*. -}
 > pdPat (PPlus p1 p2@(PStar _ _)) l -- p2 must be pStar
->     | isEmpty (strip p1) = 
+>     | posEpsilon (strip p1) = 
 >         if isGreedy p1 
 >         then [ PPlus p3 p2 | p3  <- pdPat p1 l ] ++ [ PPlus p3 p2' | (PPlus p1' p2') <- pdPat p2 l, let p3 =  p1' `getBindingsFrom` p1 ]
 >         else [ PPlus p3 p2' | (PPlus p1' p2') <- pdPat p2 l, let p3 =  p1' `getBindingsFrom` p1 ] ++ [ PPlus p3 p2 | p3  <- pdPat p1 l ]
@@ -230,14 +231,14 @@
 >                     -> Int 
 >                     -> Binder 
 >                     -> Binder
-> updateBinderByIndex i pos binder = -- binder  
+> updateBinderByIndex i pos binder = -- binder  {-
 >     IM.update (\ r -> case r of  -- we always initialize to [], we don't need to handle the key miss case
->                       { [] -> Just [(pos,pos)] 
->                       ; ((b,e):rs)
+>                       {  ((b,e):rs)
 >                           | pos == e + 1 -> Just ((b,e+1):rs)
 >                           | pos > e + 1  -> Just ((pos,pos):(b,e):rs)
 >                           | otherwise    -> error "impossible, the current letter position is smaller than the last recorded letter"   
->                       } ) i binder 
+>                       ; [] -> Just [(pos,pos)] 
+>                       } ) i binder -- -}
 > {-
 > updateBinderByIndex i pos binder = 
 >     case IM.lookup i binder of
@@ -302,7 +303,7 @@
 > pdPat0 (PStar p g) l = let pfs = pdPat0 p l
 >                        in pfs `seq` [ (PPair p' (PStar p g), f) | (p', f) <- pfs ]
 > pdPat0 (PPair p1 p2) l = 
->     if (isEmpty (strip p1))
+>     if (posEpsilon (strip p1))
 >     then if isGreedy p1
 >          then nub2 ([ (PPair p1' p2, f) | (p1' , f) <- pdPat0 p1 l ] ++ (pdPat0 p2 l))
 >          else nub2 ((pdPat0 p2 l) ++ [ (PPair p1' p2, f) | (p1' , f) <- pdPat0 p1 l ])
@@ -313,3 +314,60 @@
 
 > nub2 :: Eq a => [(a,b)] -> [(a,b)]
 > nub2 = nubBy (\(p1,f1) (p2, f2) -> p1 == p2) 
+
+
+> {-| Function 'pdPat0Sim' applies simplification to the results of 'pdPat0' -}
+> pdPat0Sim :: Pat -- ^ the source pattern 
+>              -> Letter -- ^ the letter to be "consumed"
+>              -> [(Pat, Int -> Binder -> Binder)]
+> pdPat0Sim p l = 
+>      let pfs = pdPat0 p l
+>          pfs' = pfs `seq` map (\(p,f) -> (simplify p, f)) pfs
+>      in nub2 pfs'
+
+
+
+> -- | mainly interested in simplifying epsilon, p --> p
+> -- could be made more optimal, e.g. (epsilon, epsilon) --> epsilon
+> instance Simplifiable Pat where
+>     -- simplify :: Pat -> Pat
+>     simplify (PVar i rs p) = PVar i rs (simplify p)
+>     simplify (PPair p1 p2) =
+>         let p1' = simplify p1
+>             p2' = simplify p2
+>         in if isEpsilon p1'
+>            then p2'
+>            else if isEpsilon p2'
+>                 then p1'
+>                 else PPair p1' p2'
+>     simplify (PChoice p1 p2 g) =
+>         let p1' = simplify p1
+>             p2' = simplify p2
+>         in if isPhi p2'
+>            then p1'
+>            else if isPhi p1'
+>                 then p2'
+>                 else PChoice p1' p2' g
+>     simplify (PStar p g) = PStar (simplify p) g
+>     simplify (PPlus p1 p2) = PPlus (simplify p1) (simplify p2)
+>     simplify (PE r) = PE (simplify r)
+
+
+> instance IsEpsilon Pat where
+>    isEpsilon (PVar _ _ p) = isEpsilon p
+>    isEpsilon (PE r) = isEpsilon r                                                        
+>    isEpsilon (PPair p1 p2) =  (isEpsilon p1) && (isEpsilon p2)
+>    isEpsilon (PChoice p1 p2 _) =  (isEpsilon p1) && (isEpsilon p2)
+>    isEpsilon (PStar p _) = isEpsilon p
+>    isEpsilon (PPlus p1 p2) = isEpsilon p1 && isEpsilon p2
+>    isEpsilon (PEmpty _) = True
+                                                        
+
+> instance IsPhi Pat where
+>    isPhi (PVar _ _ p) = isPhi p
+>    isPhi (PE r) = isPhi r                                                        
+>    isPhi (PPair p1 p2) =  (isPhi p1) || (isPhi p2)
+>    isPhi (PChoice p1 p2 _) =  (isPhi p1) && (isPhi p2)
+>    isPhi (PStar p _) = False
+>    isPhi (PPlus p1 p2) = isPhi p1 || isPhi p2
+>    isPhi (PEmpty _) = False
