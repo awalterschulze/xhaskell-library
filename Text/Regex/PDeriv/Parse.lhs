@@ -67,7 +67,23 @@ todo '{'
 >          p_esc_char <|>
 >          p_char
 
-> p_group = liftM EGroup $ between (char '(') (char ')') p_ere
+ p_group = liftM EGroup $ between (char '(') (char ')') p_ere
+
+> p_group = 
+>     between (char '(') (char ')') 
+>                 ( try 
+>                   ( do  
+>                     { -- non marking group 
+>                     ; (char '?') 
+>                     ; x <- p_ere
+>                     ; return (EGroupNonMarking x)
+>                     } 
+>                   )
+>                  <|>
+>                  liftM EGroup p_ere
+>                 )
+
+
 
 parsing [ ... ] and [^ ... ]
 
@@ -94,7 +110,7 @@ todo: support the locale collating char class [: :] [= =] [. .]
 
 > p_one_enum = p_range <|> p_char_set 
 
-> p_range = try $ do  -- try is like atomically?
+> p_range = try $ do  
 >           { start <- noneOf "]-"
 >           ; char '-'
 >           ; end <- noneOf "]"

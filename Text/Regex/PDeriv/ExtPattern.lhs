@@ -2,6 +2,7 @@
 
 > -- | The external pattern syntax (ERE syntax)
 > data EPat = EEmpty 
+>          | EGroupNonMarking EPat -- ^ non marking group (? re )
 >          | EGroup EPat    -- ^ the group ( re )
 >          | EOr [EPat]     -- ^ the union re|re
 >          | EConcat [EPat] -- ^ the concantenation rere
@@ -22,6 +23,7 @@
 > hasGroup :: EPat -> Bool
 > hasGroup EEmpty = False
 > hasGroup (EGroup _) = True
+> hasGroup (EGroupNonMarking ep) = hasGroup ep
 > hasGroup (EOr eps) = any hasGroup eps
 > hasGroup (EConcat eps) = any hasGroup eps
 > hasGroup (EOpt ep _) = hasGroup ep
