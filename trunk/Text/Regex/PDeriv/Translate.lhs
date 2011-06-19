@@ -204,6 +204,13 @@ getters and putters
 >          ; p <- trans' e -- no need to go through trans which possible tag p with a posix var
 >          ; return ( PVar i [] p)
 >          }
+>       {-
+>         e ~> p
+>         -----------------
+>         (? e ) ~>_p p 
+>        -}
+>     ; EGroupNonMarking e -> 
+>         trans' e
 >     ; EOr es -> 
 >         {-
 >           e1 ~> p1  e2 ~> p2
@@ -417,6 +424,13 @@ e ~>_r r
 >          e ~> r
 >         ----------
 >         (e) ~> r
+>        -}
+>       r_trans e
+>     ; EGroupNonMarking e ->
+>       {- we might not need this rule
+>          e ~> r
+>         ----------
+>         (?e) ~> r
 >        -}
 >       r_trans e
 >     ; EOr es ->
