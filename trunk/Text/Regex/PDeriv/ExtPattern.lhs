@@ -2,7 +2,7 @@
 
 > -- | The external pattern syntax (ERE syntax)
 > data EPat = EEmpty 
->          | EGroupNonMarking EPat -- ^ non marking group (? re )
+>          | EGroupNonMarking EPat -- ^ non marking group (?: re )
 >          | EGroup EPat    -- ^ the group ( re )
 >          | EOr [EPat]     -- ^ the union re|re
 >          | EConcat [EPat] -- ^ the concantenation rere

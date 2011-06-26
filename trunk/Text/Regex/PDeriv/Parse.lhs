@@ -75,6 +75,7 @@ todo '{'
 >                   ( do  
 >                     { -- non marking group 
 >                     ; (char '?') 
+>                     ; (char ':')
 >                     ; x <- p_ere
 >                     ; return (EGroupNonMarking x)
 >                     } 
