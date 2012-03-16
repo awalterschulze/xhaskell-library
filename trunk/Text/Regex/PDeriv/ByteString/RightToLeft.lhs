@@ -19,6 +19,7 @@ is reached (AKA init state of the NFA) and the input word is fully consumed.
 >     , compile
 >     , execute
 >     , regexec
+>     , parsePat
 >     ) where 
 
 > import Data.List 
