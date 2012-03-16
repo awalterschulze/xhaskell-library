@@ -7,10 +7,11 @@ The parser that parse POSIX style regex syntax and translate it into our
 internal pattern representation.
 This parser is largely adapted from Text.Regex.TDFA.ReadRegex
 
+> import Data.Char
 > import Text.ParserCombinators.Parsec((<|>), (<?>),
 >                                      unexpected, try, runParser, many, getState, setState, CharParser, ParseError,
 >                                      sepBy1, option, notFollowedBy, many1, lookAhead, eof, between,
->                                      string, noneOf, digit, char, anyChar)
+>                                      string, oneOf, noneOf, digit, char, anyChar)
 > import Control.Monad(liftM, when, guard)
 > import Data.List (sort,nub)
 > import qualified Data.IntMap as IM
@@ -112,14 +113,14 @@ todo: support the locale collating char class [: :] [= =] [. .]
 > p_one_enum = p_range <|> p_char_set 
 
 > p_range = try $ do  
->           { start <- noneOf "]-"
+>           { start <- (try p_esc_char_) <|> noneOf "]-"
 >           ; char '-'
->           ; end <- noneOf "]"
+>           ; end <- (try p_esc_char_) <|> noneOf "]"
 >           ; return [ start .. end ] 
 >           }
 
 > p_char_set = do 
->   { c <- noneOf "]"
+>   { c <- (try p_esc_char_) <|> noneOf "]" -- <|> (char '\\' >> p_special_char)
 >   ; when (c == '-') $
 >     do -- when it is a dash, it must be at the end of the [..]
 >     { atEnd <- (lookAhead (char ']') >> return True) <|> (return False)
@@ -128,21 +129,50 @@ todo: support the locale collating char class [: :] [= =] [. .]
 >   ; return [c]
 >   }
 
-
 parse the dot (all characters)
 
 > p_dot = char '.' >> (return EDot)
 
 parse the escaped chars
 
-> p_esc_char = char '\\' >> anyChar >>= \c -> return (EEscape c)
+> p_esc_char_ = char '\\' >> ((try p_tab) <|> (try p_return) <|> (try p_newline) <|> (try p_oct_ascii) <|> anyChar)
+
+> p_esc_char = char '\\' >> ((try p_tab) <|> (try p_return) <|> (try p_newline) <|> (try p_oct_ascii) <|> anyChar) >>= \c -> return (EEscape c)
+
+oct ascii, e.g. \000
+
+> p_return = do 
+>            { char 'r'
+>            ; return '\r'
+>            }
+
+> p_newline = do 
+>             { char 'n'
+>             ; return '\n'
+>             }
+
+> p_tab = do 
+>         { char 't'
+>         ; return '\t'
+>         }
+
+
+> p_oct_ascii = do  
+>               { d1 <- digit
+>               ; d2 <- digit
+>               ; d3 <- digit
+>               ; return (chr ((digitToInt d2)*8 + (digitToInt d3)))
+>               }
+
 
 parse a single non-escaped char
 
+> specials = "^.[$()|*+?{\\"
+
 > p_char = noneOf specials >>= \c -> return (EChar c)
->     where specials = "^.[$()|*+?{\\"
 
-
+> p_special_char :: CharParser EState Char
+> p_special_char = oneOf specials
 
 
 > p_post_anchor_or_atom atom = 

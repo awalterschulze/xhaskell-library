@@ -206,6 +206,17 @@
 > type Binder = IM.IntMap [Range]
 
 
+> -- | check whether a pattern has binder
+> hasBinder :: Pat -> Bool
+> hasBinder (PVar _ _ _) = True                              
+> hasBinder  (PPair p1 p2) = (hasBinder p1) || (hasBinder p2)
+> hasBinder  (PPlus p1 p2) = hasBinder p1 
+> hasBinder  (PStar p1 g)  = hasBinder p1 
+> hasBinder  (PE r)        = False
+> hasBinder  (PChoice p1 p2 g) = (hasBinder p1) || (hasBinder p2)
+> hasBinder  (PEmpty p) = hasBinder p
+                                                      
+
 > -- | Function 'toBinder' turns a pattern into a binder
 > toBinder :: Pat -> Binder
 > toBinder p = IM.fromList (toBinderList p)
@@ -288,6 +299,15 @@
 >           -> Letter -- ^ the letter to be "consumed"
 >           -> [(Pat, Int -> Binder -> Binder)]
 > pdPat0 (PVar x w p) (l,idx) 
+>     | hasBinder p = 
+>         let pfs = pdPat0 p (l,idx)
+>         in g `seq` pfs `seq` [ (PVar x [] pd, (\i -> (g i) . (f i) )) | (pd,f) <- pfs ]
+>     | otherwise = -- p is not nested
+>         let pds = partDeriv (strip p) l
+>         in g `seq` pds `seq` if null pds then []
+>                              else [ (PVar x [] (PE (resToRE pds)), g) ]
+>     where g = updateBinderByIndex x 
+> {-
 >     | IM.null (toBinder p) = -- p is not nested
 >         let pds = partDeriv (strip p) l
 >         in g `seq` pds `seq` if null pds then []
@@ -295,7 +315,8 @@
 >     | otherwise = 
 >         let pfs = pdPat0 p (l,idx)
 >         in g `seq` pfs `seq` [ (PVar x [] pd, (\i -> (g i) . (f i) )) | (pd,f) <- pfs ]
->     where g = updateBinderByIndex x
+>     where g = updateBinderByIndex x 
+> -}
 > pdPat0 (PE r) (l,idx) = 
 >     let pds = partDeriv r l
 >     in  pds `seq` if null pds then []
