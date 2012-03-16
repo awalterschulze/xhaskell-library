@@ -6,7 +6,7 @@ This algorithm proceeds by scanning the input word from left to right until we r
 an emptiable pattern and the input word is fully consumed.
 
 > {-# LANGUAGE GADTs, MultiParamTypeClasses, FunctionalDependencies,
->     FlexibleInstances, TypeSynonymInstances, FlexibleContexts #-} 
+>     FlexibleInstances, TypeSynonymInstances, FlexibleContexts, BangPatterns #-} 
 
 
 > module Text.Regex.PDeriv.ByteString.LeftToRightD
@@ -28,7 +28,7 @@ an emptiable pattern and the input word is fully consumed.
 > import Control.DeepSeq
 
 > -- import Control.Parallel 
-> -- import Control.Parallel.Strategies hiding (Seq)
+> -- import Control.Parallel.Strategies 
 
 
 > import System.IO.Unsafe (unsafePerformIO)
@@ -295,9 +295,10 @@ or able to come out a smallish example)
 >             { Nothing -> [] -- "key missing" which means some letter exists in w but not in r.    
 >             ; Just (j,next_nfaStates,fDict) -> 
 >                 let -- 
+>                     binders :: [Binder]
 >                     binders = {-# SCC "binders" #-} -- io `seq`
 >                               currNfaStateBinders `seq` fDict `seq`  
->                               concatMap' ( \ (_,m,b) -> case IM.lookup m fDict of 
+>                               concatMapl ( \ (_,m,b) -> case IM.lookup m fDict of 
 >                                                        Nothing -> []
 >                                                        Just fs -> b `seq` fs `seq` map (\f -> f cnt b) fs ) currNfaStateBinders 
 >                     nextNfaStateBinders = {-# SCC "nextNfaStateBinders" #-} -- io `seq` 
@@ -307,9 +308,26 @@ or able to come out a smallish example)
 >                 in nextNfaStateBinders `seq` cnt' `seq` w `seq`
 >                        patMatchesIntStatePdPat1 cnt' dStateTable w  nextNfaStateBinders } 
 
+general type scheme concatMapl :: (a -> [b]) -> [a] -> [b]
+
+ concatMapl :: ((Int,Int,Binder) -> [Binder]) -> [(Int,Int,Binder)] -> [Binder]
+
+> concatMapl :: (a -> [b]) -> [a] -> [b]
+> concatMapl f x = foldl' k [] x
+>   where 
+> --     k !a b@(!x,!y,!z) = (++) a (f b) -- to make it stricter
+>       k a b = a `seq` b `seq` (++) a (f b) -- to make it stricter
+> -- same as k !a !b = (++) a (f b) 
+
+
 > {-
-> concatMap' :: (a -> [b]) -> [a] -> [b]
-> concatMap' f x = reverse $ foldr ( \ b a -> (++) (f b) $! a) [] x                                
+> foldl'rnf :: NFData a => (a -> b -> a) -> a -> [b] -> a
+> foldl'rnf f z xs = lgo z xs
+>    where                      
+>       lgo z []     = z      
+>       lgo z (x:xs) = lgo z' xs 
+>          where 
+>             z' = f z x `using` rdeepseq {- was 'rnf' -}
 > -}
 
 > 
