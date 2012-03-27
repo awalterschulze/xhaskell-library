@@ -1,3 +1,4 @@
+> {-# LANGUAGE BangPatterns #-}
 > -- | this module contains the defs of common data types and type classes
 > module Text.Regex.PDeriv.Common 
 >     ( Range

@@ -1,3 +1,4 @@
+> {-# LANGUAGE BangPatterns #-}
 > -- | This module defines the data type of internal regular expression pattern, 
 > -- | as well as the partial derivative operations for regular expression patterns.
 > module Text.Regex.PDeriv.IntPattern 

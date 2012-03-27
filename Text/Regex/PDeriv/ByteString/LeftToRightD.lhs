@@ -27,8 +27,8 @@ an emptiable pattern and the input word is fully consumed.
 > import qualified Data.ByteString.Char8 as S
 > import Control.DeepSeq
 
-> -- import Control.Parallel 
-> -- import Control.Parallel.Strategies 
+> import Control.Parallel 
+> import Control.Parallel.Strategies 
 
 
 > import System.IO.Unsafe (unsafePerformIO)
@@ -294,13 +294,15 @@ or able to come out a smallish example)
 >           case k `seq` IM.lookup k dStateTable of
 >             { Nothing -> [] -- "key missing" which means some letter exists in w but not in r.    
 >             ; Just (j,next_nfaStates,fDict) -> 
->                 let -- 
+>                 let 
 >                     binders :: [Binder]
->                     binders = {-# SCC "binders" #-} -- io `seq`
->                               currNfaStateBinders `seq` fDict `seq`  
->                               concatMapl ( \ (_,m,b) -> case IM.lookup m fDict of 
->                                                        Nothing -> []
->                                                        Just fs -> b `seq` fs `seq` map (\f -> f cnt b) fs ) currNfaStateBinders 
+> {-                    binders = {-# SCC "binders" #-} -- io `seq`
+>                              currNfaStateBinders `seq` fDict `seq`  
+>                              concatMap' ( \ (_,m,b) -> case IM.lookup m fDict of 
+>                                                       Nothing -> []
+>                                                       Just fs -> b `seq` fs `seq` map (\f -> f cnt b) fs ) currNfaStateBinders -}
+>                     binders = {-# SCC "binders" #-} 
+>                               computeBinders currNfaStateBinders fDict cnt 
 >                     nextNfaStateBinders = {-# SCC "nextNfaStateBinders" #-} -- io `seq` 
 >                                           binders `seq` next_nfaStates `seq` j `seq`
 >                                           map (\(x,y) -> (j,x,y)) (zip next_nfaStates binders)
@@ -308,27 +310,43 @@ or able to come out a smallish example)
 >                 in nextNfaStateBinders `seq` cnt' `seq` w `seq`
 >                        patMatchesIntStatePdPat1 cnt' dStateTable w  nextNfaStateBinders } 
 
+
+fusing up the computation for binders
+
+> computeBinders :: [(Int,Int,Binder)] -> IM.IntMap [Int -> Binder -> Binder] -> Int -> [Binder]
+> computeBinders currNfaStateBinders fDict cnt = 
+>     cm currNfaStateBinders
+>     where 
+>        cm :: [(Int,Int,Binder)] -> [Binder]
+>        cm bs = foldl' k [] bs
+>        k :: [Binder] -> (Int,Int,Binder) -> [Binder]
+>        k !a (_,!m,!b) = case IM.lookup m fDict of { Nothing -> a; Just !gs -> ((++) a $! (map (\g -> g cnt b) gs)) }  
+> {-       k !a !b  = (++) a $! (f b)
+>        f :: (Int,Int,Binder) -> [Binder]
+>        f (_,!m,!b) = case IM.lookup m fDict of
+>                      { Nothing -> []
+>                      ; Just gs -> gs `seq` map (\g -> g cnt b) gs } -}
+
+
 general type scheme concatMapl :: (a -> [b]) -> [a] -> [b]
 
- concatMapl :: ((Int,Int,Binder) -> [Binder]) -> [(Int,Int,Binder)] -> [Binder]
 
-> concatMapl :: (a -> [b]) -> [a] -> [b]
+> concatMapl :: ((Int,Int,Binder) -> [Binder]) -> [(Int,Int,Binder)] -> [Binder]
 > concatMapl f x = foldl' k [] x
 >   where 
-> --     k !a b@(!x,!y,!z) = (++) a (f b) -- to make it stricter
 >       k a b = a `seq` b `seq` (++) a (f b) -- to make it stricter
 > -- same as k !a !b = (++) a (f b) 
 
 
-> {-
+> 
 > foldl'rnf :: NFData a => (a -> b -> a) -> a -> [b] -> a
 > foldl'rnf f z xs = lgo z xs
 >    where                      
 >       lgo z []     = z      
 >       lgo z (x:xs) = lgo z' xs 
 >          where 
->             z' = f z x `using` rdeepseq {- was 'rnf' -}
-> -}
+>             z' = f z x `using` rseq {- was 'rnf' in the realworld haskell book -}
+> 
 
 > 
 > concatMap' :: (a -> [b]) -> [a] -> [b]
