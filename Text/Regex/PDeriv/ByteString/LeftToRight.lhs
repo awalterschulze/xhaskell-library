@@ -34,7 +34,7 @@ an emptiable pattern and the input word is fully consumed.
 
 > import Text.Regex.PDeriv.RE
 > import Text.Regex.PDeriv.Pretty (Pretty(..))
-> import Text.Regex.PDeriv.Common (Range, Letter, PosEpsilon(..), Simplifiable(..), my_hash, my_lookup, GFlag(..), nub2, preBinder, mainBinder, subBinder)
+> import Text.Regex.PDeriv.Common (Range(..), Letter, PosEpsilon(..), Simplifiable(..), my_hash, my_lookup, GFlag(..), nub2, preBinder, mainBinder, subBinder)
 > import Text.Regex.PDeriv.IntPattern (Pat(..), pdPat, pdPat0, pdPat0Sim, toBinder, Binder(..), strip, listifyBinder)
 > import Text.Regex.PDeriv.Parse
 > import qualified Text.Regex.PDeriv.Dictionary as D (Dictionary(..), Key(..), insertNotOverwrite, lookupAll, empty, isIn, nub)
@@ -51,8 +51,8 @@ A word is a byte string.
 
 > type Env = [(Int,Word)]
 
-> rg_collect :: S.ByteString -> (Int,Int) -> S.ByteString
-> rg_collect w (i,j) = S.take (j' - i' + 1) (S.drop i' w)
+> rg_collect :: S.ByteString -> Range -> S.ByteString
+> rg_collect w (Range i j) = S.take (j' - i' + 1) (S.drop i' w)
 >	       where i' = fromIntegral i
 >	             j' = fromIntegral j
 

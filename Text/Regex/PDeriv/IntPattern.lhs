@@ -17,7 +17,7 @@
 
 > import Data.List
 > import qualified Data.IntMap as IM
-> import Text.Regex.PDeriv.Common (Range, Letter, PosEpsilon(..), IsEpsilon(..), IsPhi(..), GFlag(..), IsGreedy(..), Simplifiable(..) )
+> import Text.Regex.PDeriv.Common (Range(..), range, minRange, maxRange, Letter, PosEpsilon(..), IsEpsilon(..), IsPhi(..), GFlag(..), IsGreedy(..), Simplifiable(..) )
 > import Text.Regex.PDeriv.RE
 > import Text.Regex.PDeriv.Dictionary (Key(..), primeL, primeR)
 > import Text.Regex.PDeriv.Pretty
@@ -129,12 +129,12 @@
 >          let pds = pdPat p (l,idx)
 >          in if null pds then []
 >             else case w of
->		  [] -> [ PVar x [ (idx,idx) ] pd | pd <- pds ]
->		  ((b,e):rs)      --  ranges are stored in the reversed manner, the first pair the right most segment
+>		  [] -> [ PVar x [ (range idx idx) ] pd | pd <- pds ]
+>		  (rs_@((Range b e):rs))     --  ranges are stored in the reversed manner, the first pair the right most segment
 >                     | idx == (e + 1) -> -- it is consecutive
->                         [ PVar x ((b,idx):rs) pd | pd <- pds ]
+>                         [ PVar x ((range b idx):rs) pd | pd <- pds ]
 >                     | otherwise ->      -- it is NOT consecutive
->                         [ PVar x ((idx,idx):(b,e):rs) pd | pd <- pds ]
+>                         [ PVar x ((range idx idx):rs_) pd | pd <- pds ]
 > pdPat (PE r) (l,idx) = let pds = partDeriv r l 
 >                  in if null pds then []
 >                     else [ PE $ resToRE pds ]
@@ -243,13 +243,15 @@
 >                     -> Int 
 >                     -> Binder 
 >                     -> Binder
-> updateBinderByIndex i pos binder = -- binder  {-
+> updateBinderByIndex i !pos binder =  -- binder  {-
 >     IM.update (\ r -> case r of  -- we always initialize to [], we don't need to handle the key miss case
->                       {  ((b,e):rs)
->                           | pos == e + 1 -> Just ((b,e+1):rs)
->                           | pos > e + 1  -> Just ((pos,pos):(b,e):rs)
->                           | otherwise    -> error "impossible, the current letter position is smaller than the last recorded letter"   
->                       ; [] -> Just [(pos,pos)] 
+>                       {  (rs_@((Range b e):rs)) -> 
+>                           let !e' =  e + 1
+>                           in case e' of                                                    
+>                              _ | pos == e' -> Just ((range b e'):rs)
+>                                | pos > e'  -> Just ((range pos pos):rs_)
+>                                | otherwise    -> error "impossible, the current letter position is smaller than the last recorded letter"   
+>                       ; [] -> Just [(range pos pos)] 
 >                       } ) i binder -- -}
 > {-
 > updateBinderByIndex i pos binder = 

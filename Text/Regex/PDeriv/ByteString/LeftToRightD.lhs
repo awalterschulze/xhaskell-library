@@ -38,7 +38,7 @@ an emptiable pattern and the input word is fully consumed.
 
 > import Text.Regex.PDeriv.RE
 > import Text.Regex.PDeriv.Pretty (Pretty(..))
-> import Text.Regex.PDeriv.Common (Range, Letter, PosEpsilon(..), Simplifiable(..), my_hash, my_lookup, GFlag(..), nub2, preBinder, mainBinder, subBinder)
+> import Text.Regex.PDeriv.Common (Range(..), Letter, PosEpsilon(..), Simplifiable(..), my_hash, my_lookup, GFlag(..), nub2, preBinder, mainBinder, subBinder)
 > import Text.Regex.PDeriv.IntPattern (Pat(..), pdPat, pdPat0, pdPat0Sim, toBinder, Binder(..), strip, listifyBinder)
 > import Text.Regex.PDeriv.Parse
 > import qualified Text.Regex.PDeriv.Dictionary as D (Dictionary(..), Key(..), insert, insertNotOverwrite, lookupAll, empty, isIn, nub)
@@ -55,8 +55,10 @@ A word is a byte string.
 
 > type Env = [(Int,Word)]
 
-> rg_collect :: S.ByteString -> (Int,Int) -> S.ByteString
-> rg_collect w (i,j) = S.take (j' - i' + 1) (S.drop i' w)
+ rg_collect :: S.ByteString -> (Int,Int) -> S.ByteString
+
+> rg_collect :: S.ByteString -> Range -> S.ByteString
+> rg_collect w (Range i j) = S.take (j' - i' + 1) (S.drop i' w)
 >	       where i' = fromIntegral i
 >	             j' = fromIntegral j
 
@@ -289,21 +291,16 @@ or able to come out a smallish example)
 >       Nothing -> currNfaStateBinders -- we are done with the matching
 >       Just (l,w) -> 
 >           let ((i,_,_):_) = currNfaStateBinders  -- i is the current DFA state
->               k           = {-# SCC "k" #-} l `seq` i `seq` my_hash i l
+>               k           =  l `seq` i `seq` my_hash i l
 >           in
->           case k `seq` IM.lookup k dStateTable of
+>           case {- k `seq` -} IM.lookup k dStateTable of
 >             { Nothing -> [] -- "key missing" which means some letter exists in w but not in r.    
 >             ; Just (j,next_nfaStates,fDict) -> 
 >                 let 
 >                     binders :: [Binder]
-> {-                    binders = {-# SCC "binders" #-} -- io `seq`
->                              currNfaStateBinders `seq` fDict `seq`  
->                              concatMap' ( \ (_,m,b) -> case IM.lookup m fDict of 
->                                                       Nothing -> []
->                                                       Just fs -> b `seq` fs `seq` map (\f -> f cnt b) fs ) currNfaStateBinders -}
->                     binders = {-# SCC "binders" #-} 
->                               computeBinders currNfaStateBinders fDict cnt 
->                     nextNfaStateBinders = {-# SCC "nextNfaStateBinders" #-} -- io `seq` 
+>                     binders = 
+>                               fDict `seq` computeBinders currNfaStateBinders fDict cnt 
+>                     nextNfaStateBinders = -- io `seq` 
 >                                           binders `seq` next_nfaStates `seq` j `seq`
 >                                           map (\(x,y) -> (j,x,y)) (zip next_nfaStates binders)
 >                     cnt' = {-# SCC "cnt" #-} cnt + 1
@@ -321,12 +318,9 @@ fusing up the computation for binders
 >        cm bs = foldl' k [] bs
 >        k :: [Binder] -> (Int,Int,Binder) -> [Binder]
 >        k !a (_,!m,!b) = case IM.lookup m fDict of { Nothing -> a; Just !gs -> ((++) a $! (map (\g -> g cnt b) gs)) }  
-> {-       k !a !b  = (++) a $! (f b)
->        f :: (Int,Int,Binder) -> [Binder]
->        f (_,!m,!b) = case IM.lookup m fDict of
->                      { Nothing -> []
->                      ; Just gs -> gs `seq` map (\g -> g cnt b) gs } -}
 
+
+> {-
 
 general type scheme concatMapl :: (a -> [b]) -> [a] -> [b]
 
@@ -348,6 +342,8 @@ general type scheme concatMapl :: (a -> [b]) -> [a] -> [b]
 >             z' = f z x `using` rseq {- was 'rnf' in the realworld haskell book -}
 > 
 
+> -}
+
 > 
 > concatMap' :: (a -> [b]) -> [a] -> [b]
 > concatMap' f x = foldr' ( \ b a -> (++) a $! (f b) ) [] x
@@ -361,6 +357,7 @@ general type scheme concatMapl :: (a -> [b]) -> [a] -> [b]
 >                        foldr' f b' as
 
 
+> 
 
 > patMatchIntStatePdPat1 :: Pat -> Word -> [Env]
 > patMatchIntStatePdPat1 p w = 

@@ -19,7 +19,7 @@ A bytestring implementation of reg exp pattern matching using partial derivative
 
 The re-exports
 
-> import Text.Regex.PDeriv.ByteString.RightToLeft ( Regex
+> import Text.Regex.PDeriv.ByteString.LeftToRightD ( Regex
 >                                                 , CompOption(..)
 >                                                 , ExecOption(..)
 >                                                 , defaultCompOpt

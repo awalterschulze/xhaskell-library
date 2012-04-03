@@ -43,7 +43,7 @@ See resetLocalBnd below. Todo: we might want to update other algos to make it co
 
 > import Text.Regex.PDeriv.RE
 > import Text.Regex.PDeriv.Pretty (Pretty(..))
-> import Text.Regex.PDeriv.Common (Range, Letter, PosEpsilon(..), my_hash, my_lookup, GFlag(..), IsGreedy(..), preBinder, subBinder, mainBinder)
+> import Text.Regex.PDeriv.Common (Range(..), Letter, PosEpsilon(..), my_hash, my_lookup, GFlag(..), IsGreedy(..), preBinder, subBinder, mainBinder)
 > import Text.Regex.PDeriv.IntPattern (Pat(..), pdPat, toBinder, Binder(..), strip, listifyBinder)
 > import Text.Regex.PDeriv.Parse
 > import qualified Text.Regex.PDeriv.Dictionary as D (Dictionary(..), Key(..), insertNotOverwrite, lookupAll, empty, isIn, nub)
@@ -57,8 +57,8 @@ A word is a byte string.
 
 > type Word = S.ByteString
 
-> rg_collect :: S.ByteString -> (Int,Int) -> S.ByteString
-> rg_collect w (i,j) = S.take (j' - i') (S.drop i' w)
+> rg_collect :: S.ByteString -> Range -> S.ByteString
+> rg_collect w (Range i j) = S.take (j' - i') (S.drop i' w)
 >	       where i' = fromIntegral i
 >	             j' = fromIntegral j
 
@@ -251,7 +251,7 @@ A function that builds the above table from the input pattern
 > firstNonEQ (o:_) = o
 
 > len :: Range -> Int
-> len (b,e) = e - b + 1
+> len (Range b e) = e - b + 1
 
 
 > patMatchIntStatePdPat0Rev :: Pat -> Word -> [Env]
@@ -322,14 +322,14 @@ The update start from the last pos of the input string, ending with the first po
 >                     -> Binder
 > updateBinderByIndex i pos binder = -- binder {-
 >     case IM.lookup i binder of
->       { Nothing -> IM.insert i [(pos,pos+1)] binder
+>       { Nothing -> IM.insert i [(Range pos (pos+1))] binder
 >       ; Just ranges -> 
 >         case ranges of 
->         { [] -> IM.update (\_ -> Just [(pos,pos+1)]) i binder
->         ; ((b,e):rs) 
->           | b == e -> IM.update (\_ -> Just ((pos,pos+1):(b,e):rs)) i binder -- preserve the reset points (i,i)
->           | pos == b - 1  -> IM.update (\_ -> Just ((b-1,e):rs)) i binder
->           | pos < (b - 1) -> IM.update (\_ -> Just ((pos,pos+1):(b,e):rs)) i binder
+>         { [] -> IM.update (\_ -> Just [(Range pos (pos+1))]) i binder
+>         ; rs_@((Range b e):rs) 
+>           | b == e -> IM.update (\_ -> Just ((Range pos (pos+1)):rs_)) i binder -- preserve the reset points (i,i)
+>           | pos == b - 1  -> IM.update (\_ -> Just ((Range (b-1) e):rs)) i binder
+>           | pos < (b - 1) -> IM.update (\_ -> Just ((Range pos (pos+1)):rs_)) i binder
 >           | otherwise     -> error ("impossible, the current letter position is greater than the last recorded letter" ++ show i ++ show pos ++ show (b,e))
 >         }
 >       } -- -}
@@ -382,8 +382,8 @@ The update start from the last pos of the input string, ending with the first po
 >            aux is b = foldl (\b' i -> 
 >                              case IM.lookup i b' of
 >                                { Nothing -> b'
->                                ; Just [] -> IM.update (\r -> Just [(j, j)]) i b'
->                                ; Just ((s,e):ses) -> IM.update (\r -> Just ((j,j):(s,e):ses)) i b'
+>                                ; Just [] -> IM.update (\r -> Just [(Range j j)]) i b'
+>                                ; Just (ses_@((Range s e):ses)) -> IM.update (\r -> Just ((Range j j):ses_)) i b'
 >                                }) b is
 >                                                       
 
@@ -549,7 +549,7 @@ In case of p* we reset in the local binding.
 >         fs' = w' `seq` fs `seq`  l `seq` pdStateTable `seq` (patMatchesIntStatePdPat0Rev (l-1) pdStateTable w' fs)
 >         -- fs'' = fs' `seq` my_sort fs'
 >         allbinders = fs' `seq` [  b' | (s,b',_,_) <- fs', s == 0 ]
->         io = logger (print $ show b) `seq` logger (print $ show allbinders)
+>         -- io = logger (print $ show b) `seq` logger (print $ show allbinders)
 >     in -- io `seq` 
 >            allbinders `seq` map (binderToMatchArray l fb posixBnd) allbinders
 
@@ -573,9 +573,9 @@ In case of p* we reset in the local binding.
 >         mbPrefixB = IM.lookup preBinder b
 >         mbSubfixB = IM.lookup subBinder b
 >         mainB     = case (mbPrefixB, mbSubfixB) of
->                       (Just [(_,x)], Just [(y,_)]) -> (x, y - x)
->                       (Just [(_,x)], _)            -> (x, l - x)
->                       (_, Just [(y,_)])            -> (0, y) 
+>                       (Just [(Range _ x)], Just [(Range y _)]) -> (x, y - x)
+>                       (Just [(Range _ x)], _)            -> (x, l - x)
+>                       (_, Just [(Range y _)])            -> (0, y) 
 >                       (_, _)                       -> (0, l)
 >                       _                            -> error (show (mbPrefixB, mbSubfixB) ) 
 >         rs        = map snd subPatB      
@@ -583,7 +583,7 @@ In case of p* we reset in the local binding.
 >         io = logger (print $ "\n" ++ show rs ++ " || " ++ show rs' ++ "\n")
 >     in -- io `seq` 
 >        listToArray (mainB:rs')
->     where fromRange (b,e) = (b, e-b) 
+>     where fromRange (Range b e) = (b, e-b) 
 >           -- chris' test cases requires us to get the last result even if it is a reset point,
 >           -- e.g. input:"aaa"	 pattern:"((..)|(.))*" expected match:"(0,3)(2,3)(-1,-1)(2,3)" note that (..) matches with [(0,2),(2,2)], we return [(2,2)]
 >           lastNonEmpty [] = (-1,0)
