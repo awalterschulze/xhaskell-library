@@ -38,7 +38,7 @@ an emptiable pattern and the input word is fully consumed.
 
 > import Text.Regex.PDeriv.RE
 > import Text.Regex.PDeriv.Pretty (Pretty(..))
-> import Text.Regex.PDeriv.Common (Range(..), Letter, PosEpsilon(..), Simplifiable(..), my_hash, my_lookup, GFlag(..), nub2, preBinder, mainBinder, subBinder)
+> import Text.Regex.PDeriv.Common (Range, {-(..),-} Letter, PosEpsilon(..), Simplifiable(..), my_hash, my_lookup, GFlag(..), nub2, preBinder, mainBinder, subBinder)
 > import Text.Regex.PDeriv.IntPattern (Pat(..), pdPat, pdPat0, pdPat0Sim, toBinder, Binder(..), strip, listifyBinder)
 > import Text.Regex.PDeriv.Parse
 > import qualified Text.Regex.PDeriv.Dictionary as D (Dictionary(..), Key(..), insert, insertNotOverwrite, lookupAll, empty, isIn, nub)
@@ -58,7 +58,7 @@ A word is a byte string.
  rg_collect :: S.ByteString -> (Int,Int) -> S.ByteString
 
 > rg_collect :: S.ByteString -> Range -> S.ByteString
-> rg_collect w (Range i j) = S.take (j' - i' + 1) (S.drop i' w)
+> rg_collect w (i,j) = S.take (j' - i' + 1) (S.drop i' w)
 >	       where i' = fromIntegral i
 >	             j' = fromIntegral j
 
@@ -271,8 +271,8 @@ collection function for binder
 >     collectPatMatchFromBinder_ w (listifyBinder b)
 
 > collectPatMatchFromBinder_ w [] = []
-> collectPatMatchFromBinder_ w ((x,[]):xs) = (x,S.empty):(collectPatMatchFromBinder_ w xs)
-> collectPatMatchFromBinder_ w ((x,rs):xs) = (x,foldl' S.append S.empty $ map (rg_collect w) (reverse rs)):(collectPatMatchFromBinder_ w xs)
+> collectPatMatchFromBinder_ w ((x,(-1,-1)):xs) = (x,S.empty):(collectPatMatchFromBinder_ w xs)
+> collectPatMatchFromBinder_ w ((x,r):xs) = (x,rg_collect w r):(collectPatMatchFromBinder_ w xs)
 > {-
 >                                            (x, f w rs):(collectPatMatchFromBinder_ w xs)
 >     where f w [] = S.empty
@@ -503,45 +503,45 @@ Compilation
 
 -- Kenny's example
 
-> long_pat = PPair (PVar 1 [] (PE (Star (L 'A') Greedy))) (PVar 2 [] (PE (Star (L 'A') Greedy)))
+> long_pat = PPair (PVar 1 (-1,-1) (PE (Star (L 'A') Greedy))) (PVar 2 (-1,-1) (PE (Star (L 'A') Greedy)))
 > long_string n = S.pack $ (take 0 (repeat 'A')) ++ (take n (repeat 'B'))
 
 -- p4 = << x : (A|<A,B>), y : (<B,<A,A>>|A) >, z : (<A,C>|C) > 
 
 > p4 = PPair (PPair p_x p_y) p_z
->    where p_x = PVar 1 [] (PE (Choice (L 'A') (Seq (L 'A') (L 'B')) Greedy))      
->          p_y = PVar 2 [] (PE (Choice (Seq (L 'B') (Seq (L 'A') (L 'A'))) (L 'A') Greedy))
->          p_z = PVar 3 [] (PE (Choice (Seq (L 'A') (L 'C')) (L 'C') Greedy))
+>    where p_x = PVar 1 (-1,-1) (PE (Choice (L 'A') (Seq (L 'A') (L 'B')) Greedy))      
+>          p_y = PVar 2 (-1,-1) (PE (Choice (Seq (L 'B') (Seq (L 'A') (L 'A'))) (L 'A') Greedy))
+>          p_z = PVar 3 (-1,-1) (PE (Choice (Seq (L 'A') (L 'C')) (L 'C') Greedy))
 
 > input = S.pack "ABAAC"  -- long(posix) vs greedy match
 
 
-> p5 = PStar (PVar 1 [] (PE (Choice (L 'A') (Choice (L 'B') (L 'C') Greedy) Greedy))) Greedy
+> p5 = PStar (PVar 1 (-1,-1) (PE (Choice (L 'A') (Choice (L 'B') (L 'C') Greedy) Greedy))) Greedy
 
 pattern = ( x :: (A|C), y :: (B|()) )*
 
-> p6 = PStar (PPair (PVar 1 [] (PE (Choice (L 'A') (L 'C') Greedy))) (PVar 2 [] (PE (Choice (L 'B') Empty Greedy)))) Greedy
+> p6 = PStar (PPair (PVar 1 (-1,-1) (PE (Choice (L 'A') (L 'C') Greedy))) (PVar 2 (-1,-1) (PE (Choice (L 'B') Empty Greedy)))) Greedy
 
 pattern = ( x :: ( y :: A, z :: B )* )
 
-> p7 = PVar 1 [] (PStar (PPair (PVar 2 [] (PE (L 'A'))) (PVar 3 [] (PE (L 'B')))) Greedy)
+> p7 = PVar 1 (-1,-1) (PStar (PPair (PVar 2 (-1,-1) (PE (L 'A'))) (PVar 3 (-1,-1) (PE (L 'B')))) Greedy)
 
 > input7 = S.pack "ABABAB"
 
 
 pattern = ( x :: A*?, y :: A*)
 
-> p8 = PPair (PVar 1 [] (PE (Star (L 'A') NotGreedy))) (PVar 2 [] (PE (Star (L 'A') Greedy)))
+> p8 = PPair (PVar 1 (-1,-1) (PE (Star (L 'A') NotGreedy))) (PVar 2 (-1,-1) (PE (Star (L 'A') Greedy)))
 
 > input8 = S.pack "AAAAAA"
 
 pattern = ( x :: A*?, y :: A*)
 
-> p9 = PPair (PStar (PVar 1 [] (PE (L 'A'))) NotGreedy) (PVar 2 [] (PE (Star (L 'A') Greedy)))
+> p9 = PPair (PStar (PVar 1 (-1,-1) (PE (L 'A'))) NotGreedy) (PVar 2 (-1,-1) (PE (Star (L 'A') Greedy)))
 
 pattern = ( x :: (A|B)*?, (y :: (B*,A*)))
 
-> p10 = PPair (PVar 1 [] (PE (Star (Choice (L 'A') (L 'B') Greedy) NotGreedy))) (PVar 2 [] (PE (Seq (Star (L 'B') Greedy) (Star (L 'A') Greedy))))
+> p10 = PPair (PVar 1 (-1,-1) (PE (Star (Choice (L 'A') (L 'B') Greedy) NotGreedy))) (PVar 2 (-1,-1) (PE (Seq (Star (L 'B') Greedy) (Star (L 'A') Greedy))))
 
 > input10 = S.pack "ABA"
 
@@ -550,7 +550,7 @@ pattern = <(x :: (0|...|9)+?)*, (y :: (0|...|9)+?)*, (z :: (0|...|9)+?)*>
 
 > digits_re = foldl' (\x y -> Choice x y Greedy) (L '0') (map L "123456789")
 
-> p11 = PPair (PStar (PVar 1 [] (PE (Seq digits_re (Star digits_re Greedy)))) Greedy) (PPair (PStar (PVar 2 [] (PE (Seq digits_re (Star digits_re Greedy)))) Greedy) (PPair (PStar (PVar 3 [] (PE (Seq digits_re (Star digits_re Greedy)))) Greedy) (PStar (PVar 4 [] (PE (Seq digits_re (Star digits_re Greedy)))) Greedy)))
+> p11 = PPair (PStar (PVar 1 (-1,-1) (PE (Seq digits_re (Star digits_re Greedy)))) Greedy) (PPair (PStar (PVar 2 (-1,-1) (PE (Seq digits_re (Star digits_re Greedy)))) Greedy) (PPair (PStar (PVar 3 (-1,-1) (PE (Seq digits_re (Star digits_re Greedy)))) Greedy) (PStar (PVar 4 (-1,-1) (PE (Seq digits_re (Star digits_re Greedy)))) Greedy)))
 
 > input11 = S.pack "1234567890123456789-"
 

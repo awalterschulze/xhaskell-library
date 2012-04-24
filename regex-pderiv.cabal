@@ -18,15 +18,15 @@ Cabal-Version:          >= 1.2.3
 flag base4
 
 library 
-  Build-Depends:        regex-base >= 0.93.1, parsec, mtl, containers, bytestring, deepseq
+  Build-Depends:        regex-base >= 0.93.1, parsec, mtl, containers, bytestring, deepseq, vector
   Build-Depends:	bitset, parallel
   Build-Depends:         base >= 4.0 && < 5.0, ghc-prim
   Exposed-Modules:       Text.Regex.PDeriv.ByteString
-                         Text.Regex.PDeriv.ByteString.TwoPasses
-                         Text.Regex.PDeriv.ByteString.RightToLeft
-                         Text.Regex.PDeriv.ByteString.LeftToRight
+                         -- Text.Regex.PDeriv.ByteString.TwoPasses
+                         -- Text.Regex.PDeriv.ByteString.RightToLeft
+                         -- Text.Regex.PDeriv.ByteString.LeftToRight
                          Text.Regex.PDeriv.ByteString.LeftToRightD
-                         Text.Regex.PDeriv.ByteString.Posix
+                         -- Text.Regex.PDeriv.ByteString.Posix
                          Text.Regex.PDeriv.Common 
                          Text.Regex.PDeriv.Word
                          Text.Regex.PDeriv.ExtPattern

@@ -1,7 +1,7 @@
 > {-# LANGUAGE BangPatterns #-}
 > -- | this module contains the defs of common data types and type classes
 > module Text.Regex.PDeriv.Common 
->     ( Range(..), range, minRange, maxRange
+>     ( Range -- Range(..), range, minRange, maxRange
 >     , Letter
 >     , PosEpsilon (..)
 >     , IsEpsilon (..)
@@ -20,22 +20,26 @@
 >     ) where
 
 > import Data.Char (ord)
+> import qualified Data.Vector.Unboxed as V
 > import qualified Data.IntMap as IM
 > import qualified Data.BitSet as BS
 > import Data.List (nubBy)
 
 > -- | (sub)words represent by range
-> -- type Range  = (Int,Int)      
-> data Range = Range !Int !Int deriving Show
+> type Range  = (Int,Int)      
+> {- data Range = Range 
+>             !Int 
+>             !Int deriving Show 
 
 > instance Eq Range where
->   (==) (Range x y) (Range w z) = (x == w) && (y == z)
+>   (==) (Range x y) (Range w z) = (x == w) && (y == z) 
+
 
 > range :: Int -> Int -> Range
 > range = Range
 
 > minRange = fst
-> maxRange = snd
+> maxRange = snd -}
 
 > -- | a character and its index (position)
 > type Letter = (Char,Int)     
@@ -172,3 +176,4 @@ The binder index capturing substring which matches by the unanchored regex
 
 > mainBinder :: Int
 > mainBinder = 0
+

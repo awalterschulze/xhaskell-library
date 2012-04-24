@@ -8,7 +8,6 @@
 >     , Binder
 >     , toBinder
 >     , listifyBinder
->  --  , updateBinderByIndex
 >     , pdPat0
 >     , pdPat0Sim
 >     , nub2
@@ -17,14 +16,17 @@
 
 > import Data.List
 > import qualified Data.IntMap as IM
-> import Text.Regex.PDeriv.Common (Range(..), range, minRange, maxRange, Letter, PosEpsilon(..), IsEpsilon(..), IsPhi(..), GFlag(..), IsGreedy(..), Simplifiable(..) )
+> import qualified Data.Vector.Unboxed as V
+> import qualified Data.Vector.Unboxed.Mutable.Safe as S
+> import Text.Regex.PDeriv.Common (Range, Letter, PosEpsilon(..), IsEpsilon(..), IsPhi(..), GFlag(..), IsGreedy(..), Simplifiable(..) )
 > import Text.Regex.PDeriv.RE
 > import Text.Regex.PDeriv.Dictionary (Key(..), primeL, primeR)
 > import Text.Regex.PDeriv.Pretty
 
 
 > -- | regular expression patterns
-> data Pat = PVar Int [Range] Pat       -- ^ variable pattern 
+> data Pat = -- PVar Int [Range] Pat       -- ^ variable pattern 
+>   PVar Int Range Pat                  -- ^ for optimization we reduce to one Range, e.g. (x::a)* is retaining the latest range  
 >   | PE RE                             -- ^ pattern without binder
 >   | PPair Pat Pat                     -- ^ pair pattern
 >   | PChoice Pat Pat GFlag             -- ^ choice pattern 
@@ -129,12 +131,11 @@
 >          let pds = pdPat p (l,idx)
 >          in if null pds then []
 >             else case w of
->		  [] -> [ PVar x [ (range idx idx) ] pd | pd <- pds ]
->		  (rs_@((Range b e):rs))     --  ranges are stored in the reversed manner, the first pair the right most segment
->                     | idx == (e + 1) -> -- it is consecutive
->                         [ PVar x ((range b idx):rs) pd | pd <- pds ]
->                     | otherwise ->      -- it is NOT consecutive
->                         [ PVar x ((range idx idx):rs_) pd | pd <- pds ]
+>		   (-1,-1) -> [ PVar x (idx,idx)  pd | pd <- pds ]
+>		   (b,e) | idx == (e + 1) -> -- it is consecutive
+>                               [ PVar x (b, idx) pd | pd <- pds ]
+>                        | otherwise -> -- it is NOT consecutive
+>                               [ PVar x (idx,idx) pd | pd <- pds ]
 > pdPat (PE r) (l,idx) = let pds = partDeriv r l 
 >                  in if null pds then []
 >                     else [ PE $ resToRE pds ]
@@ -177,11 +178,11 @@
 >                         in assign p1 b
 >     where assign :: Pat -> Binder -> Pat
 >           assign (PVar x w p) b = 
->               case IM.lookup x b of
+>               case (V.!?) b x of
 >                  Nothing -> let p' = assign p b in PVar x w p'
 >                  Just rs -> let
 >                                 p' = assign p b 
->                             in PVar x (w ++ rs) p'
+>                             in PVar x rs p'
 >           assign (PE r) _ = PE r
 >           assign (PPlus p1 p2) b = PPlus (assign p1 b) p2 -- we don't need to care about p2 since it is a p*
 >           assign (PPair p1 p2) b = PPair (assign p1 b) (assign p2 b)
@@ -204,7 +205,8 @@
 
 > -- | The 'Binder' type denotes a set of (pattern var * range) pairs
 > -- type Binder = [(Int, [Range])]
-> type Binder = IM.IntMap [Range]
+> -- type Binder = IM.IntMap [Range]
+> type Binder = V.Vector Range
 
 
 > -- | check whether a pattern has binder
@@ -220,9 +222,16 @@
 
 > -- | Function 'toBinder' turns a pattern into a binder
 > toBinder :: Pat -> Binder
-> toBinder p = IM.fromList (toBinderList p)
+> toBinder p = V.fromList (toBinderSub p)
 
-> toBinderList :: Pat -> [(Int, [Range])]
+> toBinderSub :: Pat -> [Range] 
+> toBinderSub p = 
+>    let l = toBinderList p 
+>        l' = sortBy (\(i,v) (j,u) -> compare i j) l -- the index Int must be continuous, starting from 0 to n                 
+>    in map snd l'
+>        
+
+> toBinderList :: Pat -> [(Int, Range)]
 > toBinderList  (PVar i rs p) = [(i, rs)] ++ (toBinderList p)
 > toBinderList  (PPair p1 p2) = (toBinderList p1) ++ (toBinderList p2)
 > toBinderList  (PPlus p1 p2) = (toBinderList p1) 
@@ -231,8 +240,8 @@
 > toBinderList  (PChoice p1 p2 g) = (toBinderList p1) ++ (toBinderList p2)
 > toBinderList  (PEmpty p) = toBinderList p
 
-> listifyBinder :: Binder -> [(Int, [Range])]
-> listifyBinder b = sortBy (\ x y -> compare (fst x) (fst y)) (IM.toList b)
+> listifyBinder :: Binder -> [(Int, Range)]
+> listifyBinder b = zip [0..] (V.toList b)
 >                   
 
 > {-| Function 'updateBinderByIndex' updates a binder given an index to a pattern var
@@ -244,15 +253,18 @@
 >                     -> Binder 
 >                     -> Binder
 > updateBinderByIndex i !pos binder =  -- binder  {-
->     IM.update (\ r -> case r of  -- we always initialize to [], we don't need to handle the key miss case
->                       {  (rs_@((Range b e):rs)) -> 
->                           let !e' =  e + 1
->                           in case e' of                                                    
->                              _ | pos == e' -> Just ((range b e'):rs)
->                                | pos > e'  -> Just ((range pos pos):rs_)
->                                | otherwise    -> error "impossible, the current letter position is smaller than the last recorded letter"   
->                       ; [] -> Just [(range pos pos)] 
->                       } ) i binder -- -}
+>     let rs_ = binder V.! i
+>     in case rs_ of -- we always initialize to [], we don't need to handle the key miss case
+>        { (-1,-1) ->  V.modify (\v -> S.write v i (pos,pos)) binder -- binder V.// [(i,(pos,pos))]
+>        ; (b,e)   -> let !e'   = e + 1
+>                     in if (pos == e') 
+>                        then V.modify (\v -> S.write v i (b,e')) binder
+>                        else V.modify (\v -> S.write v i (pos,pos)) binder 
+>                        {- binder V.// [(i,(case e' of 
+>                                  { _ | pos == e' -> (b,e') 
+>                                      | pos > e'  -> (pos,pos) -- forget the past
+>                                      | otherwise -> error "imposible" }))]  -- -}
+>        }
 > {-
 > updateBinderByIndex i pos binder = 
 >     case IM.lookup i binder of
@@ -304,11 +316,11 @@
 > pdPat0 (PVar x w p) (l,idx) 
 >     | hasBinder p = 
 >         let pfs = pdPat0 p (l,idx)
->         in g `seq` pfs `seq` [ (PVar x [] pd, (\i -> (g i) . (f i) )) | (pd,f) <- pfs ]
+>         in g `seq` pfs `seq` [ (PVar x (-1,-1) pd, (\i -> (g i) . (f i) )) | (pd,f) <- pfs ]
 >     | otherwise = -- p is not nested
 >         let pds = partDeriv (strip p) l
 >         in g `seq` pds `seq` if null pds then []
->                              else [ (PVar x [] (PE (resToRE pds)), g) ]
+>                              else [ (PVar x (-1,-1) (PE (resToRE pds)), g) ]
 >     where g = updateBinderByIndex x 
 > {-
 >     | IM.null (toBinder p) = -- p is not nested
