@@ -7,24 +7,28 @@
 >     , pdPat
 >     , Binder
 >     , toBinder
+>     , toBinderList
 >     , listifyBinder
 >  --  , updateBinderByIndex
 >     , pdPat0
 >     , pdPat0Sim
 >     , nub2
+>     , BinderGrid, bgSet, bgGet, bgInit, bgGetCol
 >     )
 >     where
 
 > import Data.List
+> import qualified Data.Vector.Unboxed as U
+> import qualified Data.Vector.Unboxed.Mutable.Safe as S
 > import qualified Data.IntMap as IM
-> import Text.Regex.PDeriv.Common (Range(..), range, minRange, maxRange, Letter, PosEpsilon(..), IsEpsilon(..), IsPhi(..), GFlag(..), IsGreedy(..), Simplifiable(..) )
+> import Text.Regex.PDeriv.Common (Range, Letter, PosEpsilon(..), IsEpsilon(..), IsPhi(..), GFlag(..), IsGreedy(..), Simplifiable(..) )
 > import Text.Regex.PDeriv.RE
 > import Text.Regex.PDeriv.Dictionary (Key(..), primeL, primeR)
 > import Text.Regex.PDeriv.Pretty
 
 
 > -- | regular expression patterns
-> data Pat = PVar Int [Range] Pat       -- ^ variable pattern 
+> data Pat = PVar Int Range Pat       -- ^ variable pattern 
 >   | PE RE                             -- ^ pattern without binder
 >   | PPair Pat Pat                     -- ^ pair pattern
 >   | PChoice Pat Pat GFlag             -- ^ choice pattern 
@@ -129,12 +133,12 @@
 >          let pds = pdPat p (l,idx)
 >          in if null pds then []
 >             else case w of
->		  [] -> [ PVar x [ (range idx idx) ] pd | pd <- pds ]
->		  (rs_@((Range b e):rs))     --  ranges are stored in the reversed manner, the first pair the right most segment
+>		  ((-1),(-1)) -> [ PVar x (idx,idx) pd | pd <- pds ]
+>		  (b,e)     --  ranges are stored in the reversed manner, the first pair the right most segment
 >                     | idx == (e + 1) -> -- it is consecutive
->                         [ PVar x ((range b idx):rs) pd | pd <- pds ]
+>                         [ PVar x (b,idx) pd | pd <- pds ]
 >                     | otherwise ->      -- it is NOT consecutive
->                         [ PVar x ((range idx idx):rs_) pd | pd <- pds ]
+>                         [ PVar x (idx,idx) pd | pd <- pds ]
 > pdPat (PE r) (l,idx) = let pds = partDeriv r l 
 >                  in if null pds then []
 >                     else [ PE $ resToRE pds ]
@@ -181,7 +185,7 @@
 >                  Nothing -> let p' = assign p b in PVar x w p'
 >                  Just rs -> let
 >                                 p' = assign p b 
->                             in PVar x (w ++ rs) p'
+>                             in PVar x rs p'
 >           assign (PE r) _ = PE r
 >           assign (PPlus p1 p2) b = PPlus (assign p1 b) p2 -- we don't need to care about p2 since it is a p*
 >           assign (PPair p1 p2) b = PPair (assign p1 b) (assign p2 b)
@@ -204,7 +208,51 @@
 
 > -- | The 'Binder' type denotes a set of (pattern var * range) pairs
 > -- type Binder = [(Int, [Range])]
-> type Binder = IM.IntMap [Range]
+> type Binder = IM.IntMap Range
+
+
+BinderGrid, a 2-d array, optimized into 1-d
+horizontal index: NFA state
+vertical index: variable
+e.g.
+  s1 s2 s3 ...
+x                
+y
+z
+
+> -- data BinderGrid = BinderGrid { bgWidth :: Int, bgHeight :: Int, grid :: (U.Vector Range) }
+
+optimized version, the first cell contains width and high
+
+> type BinderGrid = U.Vector Range
+
+> bgWidth :: BinderGrid -> Int
+> bgWidth bg = fst (bg U.! 0)
+
+> bgHeight :: BinderGrid -> Int
+> bgHeight bg = snd (bg U.! 0)
+
+> bgGet :: BinderGrid -> Int -> Int -> Range
+> bgGet bg var nfaSt = let w = bgWidth bg 
+>                          g = bg -- grid bg 
+>                      in g U.! (var*w+nfaSt+1)
+
+> bgGetCol :: BinderGrid -> Int -> [(Int,Range)]
+> bgGetCol bg nfaSt = let h = bgHeight bg
+>                         g = bg -- grid bg                          
+>                         vars = [ 0 .. h-1 ]
+>                     in map (\var -> (var, bgGet bg var nfaSt)) vars
+
+> bgSet :: BinderGrid -> Int -> Int -> Range -> BinderGrid
+> bgSet bg var nfaSt r = let !w = bgWidth bg 
+>                            -- !g = grid bg  
+>                        in -- bg{grid=(U.modify (\v -> S.write v (var*w+nfaSt) r) g)} 
+>                           U.modify (\v -> S.write v (var*w+nfaSt+1) r) bg
+
+> bgInit :: Int -> Int -> BinderGrid
+> -- bgInit w h = BinderGrid w h (U.replicate ((w)*h) (-1,-1)) 
+> bgInit w h = let v = U.replicate (w*h+1) (-1,-1)
+>              in U.modify (\u -> S.write u 0 (-1,-1)) v
 
 
 > -- | check whether a pattern has binder
@@ -222,7 +270,7 @@
 > toBinder :: Pat -> Binder
 > toBinder p = IM.fromList (toBinderList p)
 
-> toBinderList :: Pat -> [(Int, [Range])]
+> toBinderList :: Pat -> [(Int, Range)]
 > toBinderList  (PVar i rs p) = [(i, rs)] ++ (toBinderList p)
 > toBinderList  (PPair p1 p2) = (toBinderList p1) ++ (toBinderList p2)
 > toBinderList  (PPlus p1 p2) = (toBinderList p1) 
@@ -231,9 +279,26 @@
 > toBinderList  (PChoice p1 p2 g) = (toBinderList p1) ++ (toBinderList p2)
 > toBinderList  (PEmpty p) = toBinderList p
 
-> listifyBinder :: Binder -> [(Int, [Range])]
+> listifyBinder :: Binder -> [(Int, Range)]
 > listifyBinder b = sortBy (\ x y -> compare (fst x) (fst y)) (IM.toList b)
 >                   
+
+
+> updateBinderGridByIndex :: Int -- variable
+>                         -> Int -- position
+>                         -> Int -- NFA id
+>                         -> BinderGrid -> BinderGrid
+> updateBinderGridByIndex i !pos !nfaSt binderGrid = 
+>     let rg = bgGet binderGrid i nfaSt 
+>     in case rg of 
+>          { ((-1),(-1)) -> bgSet binderGrid i nfaSt (pos,pos) 
+>          ; (b, e)       ->
+>             let !e' = e + 1
+>             in case e' of 
+>                 _ | pos == e' -> bgSet binderGrid i nfaSt (b, e')
+>                   | pos >  e' -> bgSet binderGrid i nfaSt (pos, pos)
+>                   | otherwise    -> error "impossible, the current letter position is smaller than the last recorded letter"   
+>          }
 
 > {-| Function 'updateBinderByIndex' updates a binder given an index to a pattern var
 >     ASSUMPTION: the var index in the pattern is linear. e.g. no ( 0 :: R1, (1 :: R2, 2 :a: R3))
@@ -245,13 +310,13 @@
 >                     -> Binder
 > updateBinderByIndex i !pos binder =  -- binder  {-
 >     IM.update (\ r -> case r of  -- we always initialize to [], we don't need to handle the key miss case
->                       {  (rs_@((Range b e):rs)) -> 
+>                       { ((-1), (-1)) -> Just (pos, pos)
+>                       ; (b,e) -> 
 >                           let !e' =  e + 1
 >                           in case e' of                                                    
->                              _ | pos == e' -> Just ((range b e'):rs)
->                                | pos > e'  -> Just ((range pos pos):rs_)
+>                              _ | pos == e' -> Just (b,e')
+>                                | pos > e'  -> Just (pos,pos)
 >                                | otherwise    -> error "impossible, the current letter position is smaller than the last recorded letter"   
->                       ; [] -> Just [(range pos pos)] 
 >                       } ) i binder -- -}
 > {-
 > updateBinderByIndex i pos binder = 
@@ -300,16 +365,16 @@
 >     the resulting partial derivative. This is used in the compilation of the regular expression pattern -}
 > pdPat0 :: Pat  -- ^ the source pattern
 >           -> Letter -- ^ the letter to be "consumed"
->           -> [(Pat, Int -> Binder -> Binder)]
+>           -> [(Pat, Int -> Int -> BinderGrid -> BinderGrid)]
 > pdPat0 (PVar x w p) (l,idx) 
 >     | hasBinder p = 
 >         let pfs = pdPat0 p (l,idx)
->         in g `seq` pfs `seq` [ (PVar x [] pd, (\i -> (g i) . (f i) )) | (pd,f) <- pfs ]
+>         in g `seq` pfs `seq` [ (PVar x ((-1), (-1)) pd, (\i st-> (g i st) . (f i st) )) | (pd,f) <- pfs ]
 >     | otherwise = -- p is not nested
 >         let pds = partDeriv (strip p) l
 >         in g `seq` pds `seq` if null pds then []
->                              else [ (PVar x [] (PE (resToRE pds)), g) ]
->     where g = updateBinderByIndex x 
+>                              else [ (PVar x ((-1),(-1)) (PE (resToRE pds)), g) ]
+>     where g = updateBinderGridByIndex x 
 > {-
 >     | IM.null (toBinder p) = -- p is not nested
 >         let pds = partDeriv (strip p) l
@@ -323,7 +388,7 @@
 > pdPat0 (PE r) (l,idx) = 
 >     let pds = partDeriv r l
 >     in  pds `seq` if null pds then []
->                   else [ (PE (resToRE pds), ( \_ -> id ) ) ]
+>                   else [ (PE (resToRE pds), ( \_ _ -> id ) ) ]
 > pdPat0 (PStar p g) l = let pfs = pdPat0 p l
 >                        in pfs `seq` [ (PPair p' (PStar p g), f) | (p', f) <- pfs ]
 > pdPat0 (PPair p1 p2) l = 
@@ -343,7 +408,7 @@
 > {-| Function 'pdPat0Sim' applies simplification to the results of 'pdPat0' -}
 > pdPat0Sim :: Pat -- ^ the source pattern 
 >              -> Letter -- ^ the letter to be "consumed"
->              -> [(Pat, Int -> Binder -> Binder)]
+>              -> [(Pat, Int -> Int -> BinderGrid -> BinderGrid)]
 > pdPat0Sim p l = 
 >      let pfs = pdPat0 p l
 >          pfs' = pfs `seq` map (\(p,f) -> (simplify p, f)) pfs
@@ -395,3 +460,6 @@
 >    isPhi (PStar p _) = False
 >    isPhi (PPlus p1 p2) = isPhi p1 || isPhi p2
 >    isPhi (PEmpty _) = False
+
+
+

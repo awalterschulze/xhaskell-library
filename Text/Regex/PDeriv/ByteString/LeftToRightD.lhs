@@ -38,8 +38,8 @@ an emptiable pattern and the input word is fully consumed.
 
 > import Text.Regex.PDeriv.RE
 > import Text.Regex.PDeriv.Pretty (Pretty(..))
-> import Text.Regex.PDeriv.Common (Range(..), Letter, PosEpsilon(..), Simplifiable(..), my_hash, my_lookup, GFlag(..), nub2, preBinder, mainBinder, subBinder)
-> import Text.Regex.PDeriv.IntPattern (Pat(..), pdPat, pdPat0, pdPat0Sim, toBinder, Binder(..), strip, listifyBinder)
+> import Text.Regex.PDeriv.Common (Range, Letter, PosEpsilon(..), Simplifiable(..), my_hash, my_lookup, GFlag(..), nub2, preBinder, mainBinder, subBinder)
+> import Text.Regex.PDeriv.IntPattern (Pat(..), pdPat, pdPat0, pdPat0Sim, toBinder, toBinderList, Binder(..), strip, listifyBinder, BinderGrid, bgInit, bgGetCol)
 > import Text.Regex.PDeriv.Parse
 > import qualified Text.Regex.PDeriv.Dictionary as D (Dictionary(..), Key(..), insert, insertNotOverwrite, lookupAll, empty, isIn, nub)
 
@@ -58,7 +58,7 @@ A word is a byte string.
  rg_collect :: S.ByteString -> (Int,Int) -> S.ByteString
 
 > rg_collect :: S.ByteString -> Range -> S.ByteString
-> rg_collect w (Range i j) = S.take (j' - i' + 1) (S.drop i' w)
+> rg_collect w ((,) i j) = S.take (j' - i' + 1) (S.drop i' w)
 >	       where i' = fromIntegral i
 >	             j' = fromIntegral j
 
@@ -68,7 +68,7 @@ we compile all the possible partial derivative operation into a table
 The table maps key to a set of target integer states and their corresponding
 binder update functions. 
 
-> type PdPat0Table = IM.IntMap [(Int, Int -> Binder -> Binder)]
+> type PdPat0Table = IM.IntMap [(Int, Int -> Int -> BinderGrid -> BinderGrid)]
 
 A function that builds the above table from the pattern
 
@@ -91,8 +91,15 @@ A function that builds the above table from the pattern
 >                                       Nothing -> IM.insert k q dict) IM.empty lists
 >     in (hash_table, sfinal)
 
+> numOfStates :: Pat -> Int
+> numOfStates init = 
+>     let sig = map (\x -> (x,0)) (sigmaRE (strip init))                              -- the sigma
+>         init_dict = D.insertNotOverwrite (D.hash init) (init,0) D.empty             -- add init into the initial dictionary
+>         (all, delta, dictionary) = sig `seq` builder sig [] [] [init] init_dict 1   -- all states and delta
+>     in length all
 
-                               
+> numOfVars :: Pat -> Int
+> numOfVars init = length (toBinderList init)                           
 
 Some helper functions used in buildPdPat0Table
 
@@ -108,11 +115,11 @@ Some helper functions used in buildPdPat0Table
 
 > builder :: [Letter] 
 >         -> [Pat] 
->         -> [(Pat,Letter, [(Pat, Int -> Binder -> Binder)] )]
+>         -> [(Pat,Letter, [(Pat, Int -> Int -> BinderGrid -> BinderGrid )] )]
 >         -> [Pat] 
 >         -> D.Dictionary (Pat,Int)
 >         -> Int 
->         -> ([Pat], [(Pat, Letter, [(Pat, Int -> Binder -> Binder)])], D.Dictionary (Pat,Int))
+>         -> ([Pat], [(Pat, Letter, [(Pat, Int -> Int -> BinderGrid -> BinderGrid)])], D.Dictionary (Pat,Int))
 > builder sig acc_states acc_delta curr_states dict max_id 
 >     | null curr_states  = (acc_states, acc_delta, dict)
 >     | otherwise = 
@@ -139,7 +146,7 @@ Technical problem, how to hash a [ Int ] in Haskell?
 
 > type DPat0Table = IM.IntMap ( Int       -- the next DFA state
 >                             , NFAStates -- the next NFA states
->                             , IM.IntMap [Int -> Binder -> Binder] -- the transition function : position -> current_binders -> next_binders
+>                             , IM.IntMap [Int -> Int -> BinderGrid -> BinderGrid] -- the transition function : position -> current_binders -> next_binders
 >                             ) -- deterministic: one output state and one update function
 
 > buildDPat0Table :: Pat -> (DPat0Table, [Int])
@@ -195,12 +202,12 @@ Technical problem, how to hash a [ Int ] in Haskell?
 > builder' :: PdPat0Table
 >          -> [ Letter ]
 >          -> [ NFAStates ] -- all so far
->          -> [ ( NFAStates, Letter, NFAStates, IM.IntMap [Int -> Binder -> Binder] ) ]  -- delta
+>          -> [ ( NFAStates, Letter, NFAStates, IM.IntMap [Int -> Int -> BinderGrid -> BinderGrid] ) ]  -- delta
 >          -> [ NFAStates ]  -- maybe new states
 >          -> D.Dictionary (NFAStates, Int) -- mapping dictionary
 >          -> Int -- max key
 >          -> ( [ NFAStates ] -- all states
->             , [ (NFAStates, Letter, NFAStates, IM.IntMap [Int -> Binder -> Binder] ) ]  -- all delta : book keeping: IntMap, mapping input nfa state to op?
+>             , [ (NFAStates, Letter, NFAStates, IM.IntMap [Int -> Int -> BinderGrid -> BinderGrid] ) ]  -- all delta : book keeping: IntMap, mapping input nfa state to op?
 >             , D.Dictionary (NFAStates, Int) )
 > builder' pdStateTable sig acc_states acc_delta [] dict max_id = (acc_states, acc_delta, dict)
 > builder' pdStateTable sig acc_states acc_delta curr_states dict max_id =
@@ -252,7 +259,7 @@ the "partial derivative" operations among integer states + binders
 
 > lookupPdPat1 :: PdPat0Table -> Int -> Letter -> [ ( Int -- next state
 >                                                   , ( Int -- current state : used as key to build the hash table
->                                                     , Int -> Binder -> Binder)) ]
+>                                                     , Int -> Int -> BinderGrid -> BinderGrid)) ]
 > lookupPdPat1 hash_table i (l,_) = 
 >     let k = my_hash i l
 >     in 
@@ -271,19 +278,25 @@ collection function for binder
 >     collectPatMatchFromBinder_ w (listifyBinder b)
 
 > collectPatMatchFromBinder_ w [] = []
-> collectPatMatchFromBinder_ w ((x,[]):xs) = (x,S.empty):(collectPatMatchFromBinder_ w xs)
-> collectPatMatchFromBinder_ w ((x,rs):xs) = (x,foldl' S.append S.empty $ map (rg_collect w) (reverse rs)):(collectPatMatchFromBinder_ w xs)
+> collectPatMatchFromBinder_ w ((x,((,) (-1) (-1))):xs) = (x,S.empty):(collectPatMatchFromBinder_ w xs)
+> collectPatMatchFromBinder_ w ((x,rs):xs) = (x,rg_collect w rs):(collectPatMatchFromBinder_ w xs)
 > {-
 >                                            (x, f w rs):(collectPatMatchFromBinder_ w xs)
 >     where f w [] = S.empty
 >           f w (r:_) = rg_collect w r
 > -}
 
+> collectPatMatchFromBinderGrid :: Word -> BinderGrid -> [Int] -> [Env]
+> collectPatMatchFromBinderGrid w bg states = 
+>     map (\state -> collectOne w bg state) states
+>    where collectOne :: Word -> BinderGrid -> Int -> Env
+>          collectOne w bg state = collectPatMatchFromBinder_ w (bgGetCol bg state)
 
 orginally the type was Int -> DPat0Table -> Word -> (Int,[(Int,Binder)]) -> (Int, [(Int,Binder)])
 where the first Int is the DFA state, but this leads to a mysterious Stack overflow fiasco, (which I don't have time to investigate why
 or able to come out a smallish example)
 
+> {- 
 > patMatchesIntStatePdPat1 :: Int -> DPat0Table -> Word -> [(Int,Int,Binder)] -> [(Int,Int,Binder)]
 > patMatchesIntStatePdPat1 cnt dStateTable  w' [] = []
 > patMatchesIntStatePdPat1 cnt dStateTable  w' currNfaStateBinders =
@@ -306,7 +319,7 @@ or able to come out a smallish example)
 >                     cnt' = {-# SCC "cnt" #-} cnt + 1
 >                 in nextNfaStateBinders `seq` cnt' `seq` w `seq`
 >                        patMatchesIntStatePdPat1 cnt' dStateTable w  nextNfaStateBinders } 
-
+> -}
 
 fusing up the computation for binders
 
@@ -357,7 +370,30 @@ general type scheme concatMapl :: (a -> [b]) -> [a] -> [b]
 >                        foldr' f b' as
 
 
-> 
+
+> patMatchesIntStatePdPat1 :: Int -> DPat0Table -> Word -> (Int, [Int], BinderGrid) -> Maybe  (Int, [Int], BinderGrid)
+> patMatchesIntStatePdPat1 cnt dStateTable w' r@(_,[],_) = Nothing
+> patMatchesIntStatePdPat1 cnt dStateTable w' r@(currDSt, currNSts, binderGrid) = 
+>     case S.uncons w' of 
+>       Nothing -> Just r
+>       Just (!l,w) -> 
+>           let k = currDSt `seq` my_hash currDSt l
+>           in case IM.lookup k dStateTable of 
+>             { Nothing -> Nothing -- "key missing" which means some letter exists in w but not in r.
+>             ; Just (nextDSt, nextNSts, fDict) ->
+>                 let nextBinderGrid :: BinderGrid
+>                     nextBinderGrid = updateBinderGrid currNSts fDict cnt binderGrid
+>                     cnt' = cnt + 1
+>                 in nextNSts `seq` cnt' `seq` w `seq` nextDSt `seq` nextBinderGrid `seq` patMatchesIntStatePdPat1 cnt' dStateTable w (nextDSt, nextNSts, nextBinderGrid)
+>             }
+
+> updateBinderGrid :: [Int] -> IM.IntMap [Int -> Int -> BinderGrid -> BinderGrid] -> Int -> BinderGrid -> BinderGrid
+> updateBinderGrid currNSts fDict cnt bg = 
+>     foldl' (\bg_ nSt -> updateOneState nSt fDict cnt bg_)  bg currNSts
+>     where updateOneState :: Int -> IM.IntMap [Int -> Int -> BinderGrid -> BinderGrid] -> Int -> BinderGrid -> BinderGrid
+>           updateOneState nSt fDict cnt bg' = 
+>              case IM.lookup nSt fDict of { Nothing -> bg'; Just !gs -> foldl' (\bg'' g -> g cnt nSt bg'') bg' gs }
+
 
 > patMatchIntStatePdPat1 :: Pat -> Word -> [Env]
 > patMatchIntStatePdPat1 p w = 
@@ -365,14 +401,13 @@ general type scheme concatMapl :: (a -> [b]) -> [a] -> [b]
 >     (dStateTable,sfinal) = buildDPat0Table p
 >     s = 0
 >     b = toBinder p
->     allbinders' = b `seq` s `seq` dStateTable `seq` (patMatchesIntStatePdPat1 0 dStateTable w [(0,s,b)])
->     -- allbinders' = b `seq` s `seq` dStateTable `seq` (patMatchesIntStatePdPat1 0 dStateTable w [(s,b)]) 
->     allbinders = allbinders' `seq` map third (filter (\(_,i,_) -> i `elem` sfinal) allbinders' )
->     -- all_func' = s `seq` pdStateTable `seq` (patMatchesIntStatePdPat0' 0 pdStateTable w [(s,[])])
->     -- all_func = all_func' `seq` map snd (filter (\(i,_) -> i `elem` sfinal) all_func' ) 
->   in map (collectPatMatchFromBinder w) $! allbinders
->      -- map (\fs -> collectPatMatchFromBinder w (applyAll (reverse fs) b)) $! all_func 
-
+>     bg = bgInit (numOfStates p) (numOfVars p) 
+>     mb = b `seq` s `seq` dStateTable `seq` (patMatchesIntStatePdPat1 0 dStateTable w (0,[s],bg))
+>   in case mb of 
+>     { Nothing -> []
+>     ; Just (_,nSts, bg') -> 
+>        let nStsFinal  = filter (\i -> i `elem` sfinal) nSts
+>        in collectPatMatchFromBinderGrid w bg' nStsFinal }
 
 > greedyPatMatch' :: Pat -> Word -> Maybe Env
 > greedyPatMatch' p w =
@@ -385,26 +420,31 @@ general type scheme concatMapl :: (a -> [b]) -> [a] -> [b]
 Compilation
 
 
-> compilePat :: Pat -> (DPat0Table, [Int], Binder)
-> compilePat p =  (dStateTable, sfinal, b)
+> compilePat :: Pat -> (DPat0Table, [Int], Binder, Int, Int)
+> compilePat p =  (dStateTable, sfinal, b, ns, nv)
 >     where 
 >           (dStateTable,sfinal) = buildDPat0Table p
 >           b = toBinder p
+>           ns = numOfStates p 
+>           nv = numOfVars p
 
-> patMatchIntStateCompiled :: (DPat0Table, [Int], Binder) -> Word -> [Env]
-> patMatchIntStateCompiled (dStateTable,sfinal,b) w = 
+> patMatchIntStateCompiled :: (DPat0Table, [Int], Binder, Int, Int) -> Word -> [Env]
+> patMatchIntStateCompiled (dStateTable,sfinal,b,ns,nv) w = 
 >   let
 >     s = 0 
->     e = [(0,0,b)]
->     allbinders' = e `seq` b `seq` s `seq` dStateTable `seq` (patMatchesIntStatePdPat1 0 dStateTable w e ) 
->     -- allbinders' = b `seq` s `seq` dStateTable `seq` (patMatchesIntStatePdPat1 0 dStateTable w [(s,b)])
->     allbinders = allbinders' `seq` map third (filter (\(_,i,_) -> i `elem` sfinal) allbinders' )
->   in allbinders `seq` map (collectPatMatchFromBinder w) allbinders
+>     bg = bgInit ns nv
+>     e = (0,[s],bg)
+>     mb = e `seq` b `seq` s `seq` dStateTable `seq` (patMatchesIntStatePdPat1 0 dStateTable w e ) 
+>   in case mb of 
+>     { Nothing -> []
+>     ; Just (_,nSts, bg') ->
+>        let nStsFinal  = filter (\i -> i `elem` sfinal) nSts
+>        in collectPatMatchFromBinderGrid w bg' nStsFinal }
 
 > third :: (a,b,c) -> c
 > third (_,_,x) = x
 
-> greedyPatMatchCompiled :: (DPat0Table, [Int], Binder) -> Word -> Maybe Env
+> greedyPatMatchCompiled :: (DPat0Table, [Int], Binder,Int,Int) -> Word -> Maybe Env
 > greedyPatMatchCompiled compiled w =
 >      first (patMatchIntStateCompiled compiled w)
 >   where
@@ -417,7 +457,7 @@ Compilation
 
 > -- | The PDeriv backend spepcific 'Regex' type
 
-> newtype Regex = Regex (DPat0Table, [Int], Binder) 
+> newtype Regex = Regex (DPat0Table, [Int], Binder, Int, Int) 
 
 
 -- todo: use the CompOption and ExecOption
@@ -503,45 +543,45 @@ Compilation
 
 -- Kenny's example
 
-> long_pat = PPair (PVar 1 [] (PE (Star (L 'A') Greedy))) (PVar 2 [] (PE (Star (L 'A') Greedy)))
+> long_pat = PPair (PVar 1 ((,) (-1) (-1)) (PE (Star (L 'A') Greedy))) (PVar 2 ((,) (-1) (-1)) (PE (Star (L 'A') Greedy)))
 > long_string n = S.pack $ (take 0 (repeat 'A')) ++ (take n (repeat 'B'))
 
 -- p4 = << x : (A|<A,B>), y : (<B,<A,A>>|A) >, z : (<A,C>|C) > 
 
 > p4 = PPair (PPair p_x p_y) p_z
->    where p_x = PVar 1 [] (PE (Choice (L 'A') (Seq (L 'A') (L 'B')) Greedy))      
->          p_y = PVar 2 [] (PE (Choice (Seq (L 'B') (Seq (L 'A') (L 'A'))) (L 'A') Greedy))
->          p_z = PVar 3 [] (PE (Choice (Seq (L 'A') (L 'C')) (L 'C') Greedy))
+>    where p_x = PVar 1 ((,) (-1) (-1)) (PE (Choice (L 'A') (Seq (L 'A') (L 'B')) Greedy))      
+>          p_y = PVar 2 ((,) (-1) (-1)) (PE (Choice (Seq (L 'B') (Seq (L 'A') (L 'A'))) (L 'A') Greedy))
+>          p_z = PVar 3 ((,) (-1) (-1)) (PE (Choice (Seq (L 'A') (L 'C')) (L 'C') Greedy))
 
 > input = S.pack "ABAAC"  -- long(posix) vs greedy match
 
 
-> p5 = PStar (PVar 1 [] (PE (Choice (L 'A') (Choice (L 'B') (L 'C') Greedy) Greedy))) Greedy
+> p5 = PStar (PVar 1 ((,) (-1) (-1)) (PE (Choice (L 'A') (Choice (L 'B') (L 'C') Greedy) Greedy))) Greedy
 
 pattern = ( x :: (A|C), y :: (B|()) )*
 
-> p6 = PStar (PPair (PVar 1 [] (PE (Choice (L 'A') (L 'C') Greedy))) (PVar 2 [] (PE (Choice (L 'B') Empty Greedy)))) Greedy
+> p6 = PStar (PPair (PVar 1 ((,) (-1) (-1)) (PE (Choice (L 'A') (L 'C') Greedy))) (PVar 2 ((,) (-1) (-1)) (PE (Choice (L 'B') Empty Greedy)))) Greedy
 
 pattern = ( x :: ( y :: A, z :: B )* )
 
-> p7 = PVar 1 [] (PStar (PPair (PVar 2 [] (PE (L 'A'))) (PVar 3 [] (PE (L 'B')))) Greedy)
+> p7 = PVar 1 ((,) (-1) (-1)) (PStar (PPair (PVar 2 ((,) (-1) (-1)) (PE (L 'A'))) (PVar 3 ((,) (-1) (-1)) (PE (L 'B')))) Greedy)
 
 > input7 = S.pack "ABABAB"
 
 
 pattern = ( x :: A*?, y :: A*)
 
-> p8 = PPair (PVar 1 [] (PE (Star (L 'A') NotGreedy))) (PVar 2 [] (PE (Star (L 'A') Greedy)))
+> p8 = PPair (PVar 1 ((,) (-1) (-1)) (PE (Star (L 'A') NotGreedy))) (PVar 2 ((,) (-1) (-1)) (PE (Star (L 'A') Greedy)))
 
 > input8 = S.pack "AAAAAA"
 
 pattern = ( x :: A*?, y :: A*)
 
-> p9 = PPair (PStar (PVar 1 [] (PE (L 'A'))) NotGreedy) (PVar 2 [] (PE (Star (L 'A') Greedy)))
+> p9 = PPair (PStar (PVar 1 ((,) (-1) (-1)) (PE (L 'A'))) NotGreedy) (PVar 2 ((,) (-1) (-1)) (PE (Star (L 'A') Greedy)))
 
 pattern = ( x :: (A|B)*?, (y :: (B*,A*)))
 
-> p10 = PPair (PVar 1 [] (PE (Star (Choice (L 'A') (L 'B') Greedy) NotGreedy))) (PVar 2 [] (PE (Seq (Star (L 'B') Greedy) (Star (L 'A') Greedy))))
+> p10 = PPair (PVar 1 ((,) (-1) (-1)) (PE (Star (Choice (L 'A') (L 'B') Greedy) NotGreedy))) (PVar 2 ((,) (-1) (-1)) (PE (Seq (Star (L 'B') Greedy) (Star (L 'A') Greedy))))
 
 > input10 = S.pack "ABA"
 
@@ -550,7 +590,7 @@ pattern = <(x :: (0|...|9)+?)*, (y :: (0|...|9)+?)*, (z :: (0|...|9)+?)*>
 
 > digits_re = foldl' (\x y -> Choice x y Greedy) (L '0') (map L "123456789")
 
-> p11 = PPair (PStar (PVar 1 [] (PE (Seq digits_re (Star digits_re Greedy)))) Greedy) (PPair (PStar (PVar 2 [] (PE (Seq digits_re (Star digits_re Greedy)))) Greedy) (PPair (PStar (PVar 3 [] (PE (Seq digits_re (Star digits_re Greedy)))) Greedy) (PStar (PVar 4 [] (PE (Seq digits_re (Star digits_re Greedy)))) Greedy)))
+> p11 = PPair (PStar (PVar 1 ((,) (-1) (-1)) (PE (Seq digits_re (Star digits_re Greedy)))) Greedy) (PPair (PStar (PVar 2 ((,) (-1) (-1)) (PE (Seq digits_re (Star digits_re Greedy)))) Greedy) (PPair (PStar (PVar 3 ((,) (-1) (-1)) (PE (Seq digits_re (Star digits_re Greedy)))) Greedy) (PStar (PVar 4 ((,) (-1) (-1)) (PE (Seq digits_re (Star digits_re Greedy)))) Greedy)))
 
 > input11 = S.pack "1234567890123456789-"
 
