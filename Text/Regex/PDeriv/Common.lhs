@@ -1,7 +1,8 @@
 > {-# LANGUAGE BangPatterns #-}
 > -- | this module contains the defs of common data types and type classes
 > module Text.Regex.PDeriv.Common 
->     ( Range(..), range, minRange, maxRange
+>     ( -- Range(..), range, minRange, maxRange
+>       Range
 >     , Letter
 >     , PosEpsilon (..)
 >     , IsEpsilon (..)
@@ -25,9 +26,10 @@
 > import Data.List (nubBy)
 
 > -- | (sub)words represent by range
-> -- type Range  = (Int,Int)      
-> data Range = Range !Int !Int deriving Show
+> type Range  = (Int,Int)      
+> -- data Range = Range !Int !Int deriving Show
 
+> {-
 > instance Eq Range where
 >   (==) (Range x y) (Range w z) = (x == w) && (y == z)
 
@@ -36,6 +38,7 @@
 
 > minRange = fst
 > maxRange = snd
+> -}
 
 > -- | a character and its index (position)
 > type Letter = (Char,Int)     
