@@ -308,7 +308,8 @@
 >     | otherwise = -- p is not nested
 >         let pds = partDeriv (strip p) l
 >         in g `seq` pds `seq` if null pds then []
->                              else [ (PVar x [] (PE (resToRE pds)), g) ]
+>                              else -- not PCRE [ (PVar x [] (PE (resToRE pds)), g) ]
+>                                   [ (PVar x [] (PE pd), g) | pd <- pds ]
 >     where g = updateBinderByIndex x 
 > {-
 >     | IM.null (toBinder p) = -- p is not nested
