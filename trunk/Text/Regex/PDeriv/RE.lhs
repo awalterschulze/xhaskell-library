@@ -66,9 +66,9 @@
 >     hash (Choice r1 r2 NotGreedy) = {- let x1 = head (hash r1)
 >                                         x2 = head (hash r2)
 >                                     in [ 4 + x1 * primeL + x2 * primeR ] -} [4]
->     hash (Seq r1 r2) = {- let x1 = head (hash r1)
+>     hash (Seq r1 r2) = let x1 = head (hash r1)
 >                            x2 = head (hash r2)
->                        in [ 5 + x1 * primeL + x2 * primeR ] -} [5]
+>                        in [ 5 + x1 * primeL + x2 * primeR ] --  [5]
 >     hash (Star r Greedy) = {- let x = head (hash r)
 >                            in [ 6 + x * primeL ] -} [6]
 >     hash (Star r NotGreedy) = {- let x = head (hash r)
@@ -121,7 +121,8 @@
 
 > -- | function 'partDeriv' implements the partial derivative operations for regular expressions. We don't pay attention to the greediness flag here.
 > partDeriv :: RE -> Char -> [RE]
-> partDeriv r l = nub (partDerivSub r l)
+> partDeriv r l = let pds = (partDerivSub r l)
+>                 in {-# SCC "nub_pd" #-} nub pds                                                  
 
 
 > partDerivSub Phi l = []
