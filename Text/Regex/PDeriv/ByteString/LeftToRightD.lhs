@@ -98,11 +98,12 @@ Some helper functions used in buildPdPat0Table
 
 > mapping :: D.Dictionary (Pat,Int) -> Pat -> Int
 > mapping dictionary x = let candidates = D.lookupAll (D.hash x) dictionary
->                        in candidates `seq` 
+>                            io = unsafePerformIO ((print x) >> (print (length candidates)))
+>                        in candidates `seq` -- io `seq`
 >                           case candidates of
 >                             [(_,i)] -> i
 >                             _ -> 
->                                 case lookup x candidates of
+>                                 case {-# SCC "mapping_lookup" #-} lookup x candidates of
 >                                 (Just i) -> i
 >                                 Nothing -> error ("this should not happen. looking up " ++ (pretty x) ++ " from " ++ (show candidates) )
 
@@ -134,6 +135,9 @@ the resulting [ Int ] is already nubbed and join, hence there is no need to run 
 This would cause some compile time overhead and trading space with time.
 
 Technical problem, how to hash a [ Int ] in Haskell?
+
+
+todo clean up buildDPat0Table merge it with buildPdPat0Table
 
 > type NFAStates = [ Int ]
 
