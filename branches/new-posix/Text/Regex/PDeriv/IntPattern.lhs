@@ -396,3 +396,6 @@
 >    isPhi (PStar p _) = False
 >    isPhi (PPlus p1 p2) = isPhi p1 || isPhi p2
 >    isPhi (PEmpty _) = False
+
+
+
