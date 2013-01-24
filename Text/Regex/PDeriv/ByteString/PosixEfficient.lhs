@@ -87,25 +87,33 @@ the shapes of the output Pat and Sbinder should be identical.
 >       }
 > dPat0 (PPair p1 p2) l = 
 >    if (posEpsilon (strip p1))
->    then do { (p1',f1) <- dPat0 p1 l 
+>    then let pf1 = dPat0 p1 l
+>             pf2 = dPat0 p2 l 
+>         in case (pf1, pf2) of 
+>         { ([], []) -> [] 
+>         ; ([], _ ) -> pf2 
+>         ; (_ , []) -> pf1 
+>         ; (_, _) -> do
+>            { (p1',f1) <- dPat0 p1 l 
 >            ; (p2',f2) <- dPat0 p2 l
 >            ; return ( PChoice (PPair p1' p2) p2' Greedy
 >                     , (\i sb -> case sb of 
 >                         { SPair sb1 sb2 -> SChoice [ SPair (f1 i sb1) sb2, f2 i sb2 ] -- TODO?
 >                         } )
 >                     ) }
+>         }
 >    else do { (p1',f1) <- dPat0 p1 l
 >            ; return ( PPair p1' p2 
 >                     , (\i sb -> case sb of 
 >                         { SPair sb1 sb2 -> SPair (f1 i sb1) sb2 } )
 >                     ) }
 > dPat0 (PChoice p1 p2 g) l = 
->    let pf1 = dPat0 p1 l
+>    let pf1 = dPat0 p1 l -- we need to remove the empty pattern (potentiall)
 >        pf2 = dPat0 p2 l         
 >    in case (pf1,pf2) of 
 >    { ([], []) -> [] 
->    ; ([], pf2) -> pf2
->    ; (pf1, []) -> pf1
+>    ; ([], _ ) -> pf2
+>    ; (_ , []) -> pf1
 >    ; _ -> do   
 >       { (p1',f1) <- pf1
 >       ; (p2',f2) <- pf2
