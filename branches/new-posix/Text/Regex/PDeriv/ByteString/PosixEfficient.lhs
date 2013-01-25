@@ -50,28 +50,28 @@ We do not break part the sub-pattern of the original reg, they are always groupe
 
 > data SBinder = SChoice [SBinder]                   
 >           | SPair SBinder SBinder              
->           | SVar (Int,[Range]) SBinder
+>           | SVar (Int,[Range]) SBinder [SBinder] --  [SBinder] is carrying the carry-forward env due to the simplification
 >           | SStar -- no need to store anything
 >           | SRE
 >    deriving Show
 
 > toSBinder :: Pat -> SBinder
-> toSBinder (PVar x w p) = SVar (x,[]) (toSBinder p)
+> toSBinder (PVar x w p) = SVar (x,[]) (toSBinder p) []
 > toSBinder (PE r) = SRE
 > toSBinder (PStar p g) = SStar
 > toSBinder (PPair p1 p2) = SPair (toSBinder p1) (toSBinder p2)
 > toSBinder (PChoice p1 p2 g) = SChoice [toSBinder p1, toSBinder p2]
 
 
-invariance, the shapes of the input Pat and SBinder should be identical.
-the shapes of the output Pat and Sbinder should be identical.
+The invariance: 
+The shapes of the input/output Pat and SBinder should be identical.
                    
 > dPat0 :: Pat -> Letter -> [(Pat, Int -> SBinder -> SBinder)]  -- the lists are always singleton,
 > dPat0 (PVar x w p) (l, idx) = 
 >    do { (p',f) <- dPat0 p (l, idx)  
 >       ; return (PVar x [] p', (\i sb -> 
 >                              case sb of 
->                              { SVar (v, r) sb' -> SVar (v, updateRange i r) (f i sb') 
+>                              { SVar (v, r) sb' cf -> SVar (v, updateRange i r) (f i sb') cf
 >                              ; _ -> error ("dPat0 failed with pattern " ++ (show (PVar x w p))  ++ " and binding " ++ (show sb))
 >                              }) ) }
 
@@ -87,18 +87,32 @@ the shapes of the output Pat and Sbinder should be identical.
 >       }
 > dPat0 (PPair p1 p2) l = 
 >    if (posEpsilon (strip p1))
->    then let pf1 = dPat0 p1 l
+>    then let pf1 = dPat0 p1 l -- we need to remove the empty pattern (potentially)
 >             pf2 = dPat0 p2 l 
 >         in case (pf1, pf2) of 
 >         { ([], []) -> [] 
->         ; ([], _ ) -> pf2 
->         ; (_ , []) -> pf1 
+>         ; ([], _ ) -> do 
+>            { (p2', f2) <- pf2 -- we drop the sb1, because it reaches no state
+>            ; let rm = removeNonEmpty p1
+>            ; return (p2', (\i sb -> case sb of 
+>                           { SPair sb1 sb2 -> 
+>                              let sb1' = rm sb1 
+>                              in carryForward sb1' (f2 i sb2) }))
+>            }
+>         ; (_ , []) -> do 
+>            { (p1', f1) <- pf1 
+>            ; return ( PPair p1' p2, (\i sb -> case sb of 
+>                           { SPair sb1 sb2 -> SPair (f1 i sb1) sb2 }))
+>            }
 >         ; (_, _) -> do
 >            { (p1',f1) <- dPat0 p1 l 
 >            ; (p2',f2) <- dPat0 p2 l
+>            ; let rm = removeNonEmpty p1
 >            ; return ( PChoice (PPair p1' p2) p2' Greedy
 >                     , (\i sb -> case sb of 
->                         { SPair sb1 sb2 -> SChoice [ SPair (f1 i sb1) sb2, f2 i sb2 ] -- TODO?
+>                         { SPair sb1 sb2 -> 
+>                            let sb1' = rm sb1
+>                            in SChoice [ SPair (f1 i sb1) sb2, carryForward sb1' (f2 i sb2) ] -- TODO: we need to shift the sb1 to sb2 in the (f2 i sb2)
 >                         } )
 >                     ) }
 >         }
@@ -108,12 +122,20 @@ the shapes of the output Pat and Sbinder should be identical.
 >                         { SPair sb1 sb2 -> SPair (f1 i sb1) sb2 } )
 >                     ) }
 > dPat0 (PChoice p1 p2 g) l = 
->    let pf1 = dPat0 p1 l -- we need to remove the empty pattern (potentiall)
+>    let pf1 = dPat0 p1 l 
 >        pf2 = dPat0 p2 l         
 >    in case (pf1,pf2) of 
 >    { ([], []) -> [] 
->    ; ([], _ ) -> pf2
->    ; (_ , []) -> pf1
+>    ; ([], _ ) -> do 
+>       { (p2', f2) <- pf2
+>       ; return (p2', (\i sb -> case sb of 
+>                      { SChoice [sb1,sb2] -> f2 i sb2 }))
+>       }
+>    ; (_ , []) -> do 
+>       { (p1', f1) <- pf1
+>       ; return (p1', (\i sb -> case sb of 
+>                      { SChoice [sb1,sb2] -> f1 i sb1 }))
+>       }
 >    ; _ -> do   
 >       { (p1',f1) <- pf1
 >       ; (p2',f2) <- pf2
@@ -122,6 +144,19 @@ the shapes of the output Pat and Sbinder should be identical.
 >       }
 >    }
 
+> carryForward :: SBinder -> SBinder -> SBinder
+> carryForward sb1 (SVar (v, r) sb' cf) = SVar (v, r) sb' (sb1:cf)
+> carryForward sb1 _ = error "trying to carry forward into a non-annotated pattern binder"
+
+> removeNonEmpty :: Pat -> SBinder -> SBinder                                           
+> removeNonEmpty (PVar x w p) (SVar (_,b) sb cf) 
+>       | posEpsilon (strip p) = SVar (x,b) (removeNonEmpty p sb) cf
+>       | otherwise = SVar (x,[]) SRE cf
+> removeNonEmpty (PE r) SRE = SRE
+> removeNonEmpty (PStar p g) SStar = SStar
+> removeNonEmpty (PPair p1 p2) (SPair sb1 sb2) = SPair (removeNonEmpty p1 sb1) (removeNonEmpty p2 sb2) 
+> removeNonEmpty (PChoice p1 p2 g) (SChoice [sb1, sb2]) = 
+>       SChoice [removeNonEmpty p1 sb1, removeNonEmpty p2 sb2]
 
 
 > updateRange :: Int -> [Range] -> [Range]
