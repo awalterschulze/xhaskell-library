@@ -220,7 +220,7 @@ getters and putters
 >       do { ps <- mapM trans es
 >          ; case ps of
 >            { (p':ps') -> 
->               return (foldl (\xs x -> PChoice xs x Greedy) p' ps')
+>               return (PChoice ps Greedy )
 >            ; [] -> error "an empty choice enountered." -- todo : capture the error in the monad state
 >            }
 >          }
@@ -247,7 +247,7 @@ getters and putters
 >       do { p <- trans e
 >          ; let g | b = Greedy
 >                  | otherwise = NotGreedy
->          ; return (PChoice p (PE Empty) g)
+>          ; return (PChoice [p,PE Empty] g)
 >          }
 >     ; EPlus e b ->
 >       {- 
@@ -289,7 +289,7 @@ getters and putters
 >                     { [] -> Empty
 >                     ; (r':rs') -> foldl (\ rs r -> Seq rs r) r' rs'
 >                     }
->                r2s = take (high - low) $ repeat (Choice r Empty g)
+>                r2s = take (high - low) $ repeat (Choice [r,Empty] g)
 >                r2 = case r2s of
 >                     { [] -> Empty
 >                     ; (r':rs') -> foldl (\ rs r -> Seq rs r) r' rs'
@@ -396,7 +396,7 @@ getters and putters
 >     }
 
 
-> char_list_to_re (c:cs) = foldl (\ r c' -> Choice r (L c') Greedy) (L c) cs
+> char_list_to_re (c:cs) = Choice (map L (c:cs)) Greedy
 > char_list_to_re [] = error "char_list_to_re expects non-empty list"
 
 > alphas = char_list_to_re (['a'..'z'] ++ ['A'..'Z'])
@@ -442,7 +442,7 @@ e ~>_r r
 >       do { rs <- mapM r_trans es
 >          ; case rs of
 >            { [] -> return Phi
->            ; (r:rs) -> return (foldl (\ xs x -> Choice xs x Greedy) r rs)
+>            ; (r:rs) -> return (Choice rs Greedy)
 >            }
 >          }
 >     ; EConcat es ->
@@ -466,7 +466,7 @@ e ~>_r r
 >       do { r <- r_trans e
 >          ; let g | b = Greedy
 >                  | otherwise = NotGreedy
->          ; return (Choice r Empty g)
+>          ; return (Choice [r,Empty] g)
 >          }
 >     ; EPlus e b -> 
 >       {-
@@ -507,7 +507,7 @@ e ~>_r r
 >                     { [] -> Empty
 >                     ; (r':rs') -> foldl (\ rs r -> Seq rs r) r' rs'
 >                     }
->                r2s = take (high - low) $ repeat (Choice r Empty g)
+>                r2s = take (high - low) $ repeat (Choice [r,Empty] g)
 >                r2 = case r2s of
 >                     { [] -> Empty
 >                     ; (r':rs') -> foldl (\ rs r -> Seq rs r) r' rs'

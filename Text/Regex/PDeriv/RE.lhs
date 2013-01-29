@@ -16,7 +16,7 @@
 > data RE = Phi 
 >  | Empty        -- ^ an empty exp
 >  | L Char	  -- ^ a literal / a character
->  | Choice RE RE GFlag -- ^ a choice exp 'r1 + r2'
+>  | Choice [RE] GFlag -- ^ a choice exp 'r1 + r2'
 >  | Seq RE RE     -- ^ a pair exp '(r1,r2)'
 >  | Star RE GFlag -- ^ a kleene's star exp 'r*'
 >  | Any           -- ^ .
@@ -26,7 +26,7 @@
 > instance Eq RE where
 >     (==) Empty Empty = True
 >     (==) (L x) (L y) = x == y
->     (==) (Choice r1 r2 g1) (Choice r3 r4 g2) = (g1 == g2) && (r2 == r4) && (r1 == r3) 
+>     (==) (Choice rs1 g1) (Choice rs2 g2) = (g1 == g2) && (rs2 == rs1) 
 >     (==) (Seq r1 r2) (Seq r3 r4) = (r1 == r3) && (r2 == r4)
 >     (==) (Star r1 g1) (Star r2 g2) = g1 == g2 && r1 == r2 
 >     (==) Any Any = True
@@ -39,7 +39,7 @@
 >     show Phi = "{}"
 >     show Empty = "<>"
 >     show (L c) = show c
->     show (Choice r1 r2 g) = "(" ++ show r1 ++ "|" ++ show r2 ++ ")" ++ show g
+>     show (Choice rs g) = "(" ++ show rs ++ ")" ++ show g
 >     show (Seq r1 r2) = "<" ++ show r1 ++ "," ++ show r2 ++ ">"
 >     show (Star r g) = show r ++ "*" ++ show g
 >     show Any = "."
@@ -48,8 +48,8 @@
 > instance IsGreedy RE where
 >     isGreedy Phi = True
 >     isGreedy Empty = False
->     isGreedy (Choice r1 r2 Greedy) = True
->     isGreedy (Choice r1 r2 NotGreedy) = False -- (isGreedy r1) || (isGreedy r2)
+>     isGreedy (Choice _ Greedy) = True
+>     isGreedy (Choice _ NotGreedy) = False -- (isGreedy r1) || (isGreedy r2)
 >     isGreedy (Seq r1 r2) = (isGreedy r1) || (isGreedy r2)
 >     isGreedy (Star r Greedy) = True
 >     isGreedy (Star r NotGreedy) = False
@@ -60,10 +60,10 @@
 > instance Key RE where
 >     hash Phi = [0]
 >     hash Empty = [1]
->     hash (Choice r1 r2 Greedy) = {- let x1 = head (hash r1)
+>     hash (Choice _ Greedy) = {- let x1 = head (hash r1)
 >                                      x2 = head (hash r2)
 >                                  in [ 3 +  x1 * primeL + x2 * primeR ] -} [3]
->     hash (Choice r1 r2 NotGreedy) = {- let x1 = head (hash r1)
+>     hash (Choice _ NotGreedy) = {- let x1 = head (hash r1)
 >                                         x2 = head (hash r2)
 >                                     in [ 4 + x1 * primeL + x2 * primeR ] -} [4]
 >     hash (Seq r1 r2) = let x1 = head (hash r1)
@@ -82,14 +82,14 @@
 
 > -- | function 'resToRE' sums up a list of regular expressions with the choice operation.
 > resToRE :: [RE] -> RE
-> resToRE (r:res) = foldl (\x y -> Choice x y Greedy) r res
+> resToRE x@(r:res) = Choice x Greedy
 > resToRE [] = Phi
 
 
 > instance PosEpsilon RE where
 >   posEpsilon Phi = False
 >   posEpsilon Empty = True
->   posEpsilon (Choice r1 r2 g) = (posEpsilon r1) || (posEpsilon r2)
+>   posEpsilon (Choice rs g) = any posEpsilon rs
 >   posEpsilon (Seq r1 r2) = (posEpsilon r1) && (posEpsilon r2)
 >   posEpsilon (Star r g) = True
 >   posEpsilon (L _) = False
@@ -101,7 +101,7 @@
 > instance IsEpsilon RE where
 >   isEpsilon Phi = False
 >   isEpsilon Empty = True
->   isEpsilon (Choice r1 r2 g) = (isEpsilon r1) && (isEpsilon r2)
+>   isEpsilon (Choice rs g) = all isEpsilon rs
 >   isEpsilon (Seq r1 r2) = (isEpsilon r1) && (isEpsilon r2)
 >   isEpsilon (Star Phi g) = True
 >   isEpsilon (Star r g) = isEpsilon r
@@ -112,7 +112,7 @@
 > instance IsPhi RE where
 >   isPhi Phi = True
 >   isPhi Empty = False
->   isPhi (Choice r1 r2 g) = (isPhi r1) && (isPhi r2)
+>   isPhi (Choice rs g) = all isPhi rs
 >   isPhi (Seq r1 r2) = (isPhi r1) || (isPhi r2)
 >   isPhi (Star r g) = False
 >   isPhi (L _) = False
@@ -134,11 +134,7 @@
 > partDerivSub (Not cs) l 
 >     | l `elem` cs = []
 >     | otherwise = [Empty]
-> partDerivSub (Choice r1 r2 g) l = 
->     let 
->         s1 = partDerivSub r1 l 
->         s2 = partDerivSub r2 l
->     in s1 `seq` s2 `seq` (s1 ++ s2)
+> partDerivSub (Choice rs g) l = concatMap (\ r -> partDerivSub r l) rs
 > partDerivSub (Seq r1 r2) l 
 >     | posEpsilon r1 = 
 >           let 
@@ -164,7 +160,7 @@
 > sigmaREsub Any = map chr [32 .. 127]
 > sigmaREsub (Not cs) = filter (\c -> not (c `elem` cs)) (map chr [32 .. 127])
 > sigmaREsub (Seq r1 r2) = (sigmaREsub r1) ++ (sigmaREsub r2) 
-> sigmaREsub (Choice r1 r2 g) = (sigmaREsub r1) ++ (sigmaREsub r2) 
+> sigmaREsub (Choice rs g) = concatMap sigmaREsub rs
 > sigmaREsub (Star r g) = sigmaREsub r
 > sigmaREsub Phi = []
 > sigmaREsub Empty = []
@@ -181,14 +177,11 @@
 >            else if isEpsilon r2'
 >                 then r1'
 >                 else Seq r1' r2'
->     simplify (Choice r1 r2 g) = 
->         let r1' = simplify r1
->             r2' = simplify r2
->         in if isPhi r1'
->            then r2'
->            else if isPhi r2'
->                 then r1'
->                 else Choice r1' r2' g
+>     simplify (Choice rs g) = 
+>         let rs' = filter (not . isPhi) $ map simplify rs
+>         in if null rs' 
+>            then Phi
+>            else Choice rs' g
 >     simplify (Star r g) = Star (simplify r) g
 >     simplify Phi = Phi
 >     simplify Empty = Empty
