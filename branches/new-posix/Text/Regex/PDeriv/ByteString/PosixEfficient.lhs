@@ -47,20 +47,22 @@ We do not break part the sub-pattern of the original reg, they are always groupe
 
 > logger io = unsafePerformIO io
 
+> type SRange = (Int,[Range])
 
-> data SBinder = SChoice [SBinder]                   
->           | SPair SBinder SBinder              
->           | SVar (Int,[Range]) SBinder [SBinder] --  [SBinder] is carrying the carry-forward env due to the simplification
->           | SStar -- no need to store anything
->           | SRE
+
+> data SBinder = SChoice [SBinder] [SRange]                
+>           | SPair SBinder SBinder [SRange]               
+>           | SVar SRange SBinder [SRange] --  [SBinder] is carrying the carry-forward env due to the simplification
+>           | SStar [SRange] -- no need to store anything
+>           | SRE [SRange]
 >    deriving Show
 
 > toSBinder :: Pat -> SBinder
 > toSBinder (PVar x w p) = SVar (x,[]) (toSBinder p) []
-> toSBinder (PE r) = SRE
-> toSBinder (PStar p g) = SStar
-> toSBinder (PPair p1 p2) = SPair (toSBinder p1) (toSBinder p2)
-> toSBinder (PChoice p1 p2 g) = SChoice [toSBinder p1, toSBinder p2]
+> toSBinder (PE r) = SRE []
+> toSBinder (PStar p g) = SStar []
+> toSBinder (PPair p1 p2) = SPair (toSBinder p1) (toSBinder p2) []
+> toSBinder (PChoice ps g) = SChoice (map toSBinder ps) []
 
 
 The invariance: 
@@ -83,7 +85,7 @@ The shapes of the input/output Pat and SBinder should be identical.
 >    do { (p', f) <- dPat0 p l        
 >       ; let emp = toSBinder p                     
 >       ; return (PPair p' (PStar p g), (\i sb -> 
->                     case sb of { SStar -> SPair (f i emp) sb } ) ) 
+>                     case sb of { SStar cf -> SPair (f i emp) sb cf} ) ) 
 >       }
 > dPat0 (PPair p1 p2) l = 
 >    if (posEpsilon (strip p1))
@@ -93,70 +95,93 @@ The shapes of the input/output Pat and SBinder should be identical.
 >         { ([], []) -> [] 
 >         ; ([], _ ) -> do 
 >            { (p2', f2) <- pf2 -- we drop the sb1, because it reaches no state
->            ; let rm = removeNonEmpty p1
+>            ; let rm = extract p1
 >            ; return (p2', (\i sb -> case sb of 
->                           { SPair sb1 sb2 -> 
+>                           { SPair sb1 sb2 cf -> 
 >                              let sb1' = rm sb1 
->                              in carryForward sb1' (f2 i sb2) }))
+>                              in carryForward (sb1'++cf) (f2 i sb2) }))
 >            }
 >         ; (_ , []) -> do 
 >            { (p1', f1) <- pf1 
 >            ; return ( PPair p1' p2, (\i sb -> case sb of 
->                           { SPair sb1 sb2 -> SPair (f1 i sb1) sb2 }))
+>                           { SPair sb1 sb2 cf -> SPair (f1 i sb1) sb2 cf }))
 >            }
 >         ; (_, _) -> do
 >            { (p1',f1) <- dPat0 p1 l 
 >            ; (p2',f2) <- dPat0 p2 l
->            ; let rm = removeNonEmpty p1
->            ; return ( PChoice (PPair p1' p2) p2' Greedy
+>            ; let rm = extract p1
+>            ; return ( PChoice [PPair p1' p2, p2'] Greedy
 >                     , (\i sb -> case sb of 
->                         { SPair sb1 sb2 -> 
+>                         { SPair sb1 sb2 cf -> 
 >                            let sb1' = rm sb1
->                            in SChoice [ SPair (f1 i sb1) sb2, carryForward sb1' (f2 i sb2) ] -- TODO: we need to shift the sb1 to sb2 in the (f2 i sb2)
+>                            in SChoice [ SPair (f1 i sb1) sb2 cf, carryForward (sb1'++cf) (f2 i sb2) ] [] -- TODO: we need to shift the sb1 to sb2 in the (f2 i sb2)
 >                         } )
 >                     ) }
 >         }
 >    else do { (p1',f1) <- dPat0 p1 l
 >            ; return ( PPair p1' p2 
 >                     , (\i sb -> case sb of 
->                         { SPair sb1 sb2 -> SPair (f1 i sb1) sb2 } )
+>                         { SPair sb1 sb2 cf -> SPair (f1 i sb1) sb2 cf } )
 >                     ) }
-> dPat0 (PChoice p1 p2 g) l = 
->    let pf1 = dPat0 p1 l 
+> dPat0 (PChoice ps g) l = 
+>    let pf = map (\p -> dPat0 p l) ps
+>        nubPF :: [(Pat, Int -> SBinder -> SBinder)] -> [(Pat, Int -> SBinder -> SBinder)] 
+>        nubPF [] = []
+>        nubPF (pf:pfs) = undefined
 >        pf2 = dPat0 p2 l         
 >    in case (pf1,pf2) of 
 >    { ([], []) -> [] 
 >    ; ([], _ ) -> do 
 >       { (p2', f2) <- pf2
 >       ; return (p2', (\i sb -> case sb of 
->                      { SChoice [sb1,sb2] -> f2 i sb2 }))
+>                      { SChoice [sb1,sb2] cf -> carryForward cf (f2 i sb2) }))
 >       }
 >    ; (_ , []) -> do 
 >       { (p1', f1) <- pf1
 >       ; return (p1', (\i sb -> case sb of 
->                      { SChoice [sb1,sb2] -> f1 i sb1 }))
+>                      { SChoice [sb1,sb2] cf -> carryForward cf (f1 i sb1) }))
 >       }
 >    ; _ -> do   
 >       { (p1',f1) <- pf1
 >       ; (p2',f2) <- pf2
 >       ; return (PChoice p1' p2' g, (\i sb ->                       
->              case sb of { SChoice [sb1,sb2] -> SChoice [f1 i sb1, f2 i sb2] }))
+>              case sb of { SChoice [sb1,sb2] cf -> SChoice [f1 i sb1, f2 i sb2] cf }))
 >       }
 >    }
 
-> carryForward :: SBinder -> SBinder -> SBinder
-> carryForward sb1 (SVar (v, r) sb' cf) = SVar (v, r) sb' (sb1:cf)
-> carryForward sb1 _ = error "trying to carry forward into a non-annotated pattern binder"
+> carryForward :: [SRange] -> SBinder -> SBinder
+> carryForward sr (SVar (v, r) sb' cf) = SVar (v, r) sb' (cf++sr)
+> carryForward sr (SRE cf) = SRE (cf++sr)
+> carryForward sr (SStar cf) = SStar (cf++sr)
+> carryForward sr (SPair sb1 sb2 cf) = SPair sb1 sb2 (cf++sr)
+> carryForward sr (SChoice sbs cf) = SChoice sbs (cf++sr)
+> carryForward sr sb2 = error ("trying to carry forward into a non-annotated pattern binder " ++ (show sb2))
 
+> {-
 > removeNonEmpty :: Pat -> SBinder -> SBinder                                           
 > removeNonEmpty (PVar x w p) (SVar (_,b) sb cf) 
 >       | posEpsilon (strip p) = SVar (x,b) (removeNonEmpty p sb) cf
 >       | otherwise = SVar (x,[]) SRE cf
 > removeNonEmpty (PE r) SRE = SRE
-> removeNonEmpty (PStar p g) SStar = SStar
+> removeNonEmpty (PStar p g) SStar = SStar 
 > removeNonEmpty (PPair p1 p2) (SPair sb1 sb2) = SPair (removeNonEmpty p1 sb1) (removeNonEmpty p2 sb2) 
 > removeNonEmpty (PChoice p1 p2 g) (SChoice [sb1, sb2]) = 
 >       SChoice [removeNonEmpty p1 sb1, removeNonEmpty p2 sb2]
+> -}
+
+> extract :: Pat -> SBinder -> [SRange]
+> extract (PVar x w p) (SVar (_,b) sb cf)
+>      | posEpsilon (strip p) = (x,b):(extract p sb) ++ cf
+>      | otherwise = [] -- cf?
+> extract (PE r) (SRE cf) = cf
+> extract (PStar p g) (SStar cf) = cf
+> extract (PPair p1 p2) (SPair sb1 sb2 cf) = (extract p1 sb1) ++ (extract p2 sb2) ++ cf
+> extract (PChoice p1 p2 g) (SChoice [sb1, sb2] cf) = 
+>     let r1 = extract p1 sb1
+>         r2 = extract p2 sb2          
+>     in if null r1 
+>     then r2 ++ cf
+>     else r1 ++ cf         
 
 
 > updateRange :: Int -> [Range] -> [Range]
@@ -179,13 +204,18 @@ The shapes of the input/output Pat and SBinder should be identical.
 
 
 
+x0 :: (x1 :: ( x2 :: (ab|a), x3 :: (baa|a)), x4 :: (ac|c))
+
 > p4 = PVar 0 [] (PPair (PVar 1 [] ((PPair p_x p_y))) p_z)
 >    where p_x = PVar 2 [] (PE (Choice (L 'A') (Seq (L 'A') (L 'B')) Greedy))      
 >          p_y = PVar 3 [] (PE (Choice (Seq (L 'B') (Seq (L 'A') (L 'A'))) (L 'A') Greedy))
 >          p_z = PVar 4 [] (PE (Choice (Seq (L 'A') (L 'C')) (L 'C') Greedy))
 
 
+x0 :: ( x1 :: (  x2 :: (x3:: a | x4 :: ab) | x5 :: b)* )
 
 
-
-
+> p3 = PVar 0 [] (PStar ( PVar 1 [] ( PChoice (PVar 2 [] (PChoice p3 p4 Greedy)) p5 Greedy)) Greedy)
+>    where p3 = PVar 3 [] (PE (L 'A'))
+>          p4 = PVar 4 [] (PE (Seq (L 'A') (L 'B')))           
+>          p5 = PVar 5 [] (PE (L 'B'))

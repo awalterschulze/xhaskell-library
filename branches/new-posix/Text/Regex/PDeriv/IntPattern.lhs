@@ -27,7 +27,7 @@
 > data Pat = PVar Int [Range] Pat       -- ^ variable pattern 
 >   | PE RE                             -- ^ pattern without binder
 >   | PPair Pat Pat                     -- ^ pair pattern
->   | PChoice Pat Pat GFlag             -- ^ choice pattern 
+>   | PChoice [Pat] GFlag             -- ^ choice pattern 
 >   | PStar Pat GFlag                   -- ^ star pattern 
 >   | PPlus Pat Pat                     -- ^ plus pattern, it is used internally to indicate that it is unrolled from a PStar
 >   | PEmpty Pat                        -- ^ empty pattern, it is used intermally to indicate that mkEmpty function has been applied.
@@ -41,17 +41,22 @@
 > instance Eq Pat where
 >   (==) (PVar x1 _ p1) (PVar x2 _ p2) = (x1 == x2) && (p1 == p2) 
 >   (==) (PPair p1 p2) (PPair p1' p2') = (p1 == p1') && (p2 == p2')
->   (==) (PChoice p1 p2 g1) (PChoice p1' p2' g2) = (g1 == g2) && (p2 == p2') && (p1 == p1') -- more efficient, because choices are constructed in left-nested
+>   (==) (PChoice ps1 g1) (PChoice ps2 g2) = (g1 == g2) && (ps1 == ps2) -- more efficient, because choices are constructed in left-nested
 >   (==) (PPlus p1 p2) (PPlus p1' p2') = (p1 == p1') && (p2 == p2')
 >   (==) (PStar p1 g1) (PStar p2 g2) =  (g1 == g2) && (p1 == p2)
 >   (==) (PE r1) (PE r2) = r1 == r2
 >   (==) _ _ = False
 > 
 
+> instance Pretty a => Pretty [a] where
+>     pretty [] = "{}"
+>     pretty a@(x:xs) = "{" ++ prettyAll ++ "}"
+>        where prettyAll = foldl' (\a i -> a++","++(pretty i)) (pretty x) xs
+
 > instance Pretty Pat where
 >     pretty (PVar x1 _ p1) = "(" ++ show x1 ++ ":" ++ pretty p1 ++ ")"
 >     pretty (PPair p1 p2) = "<" ++ pretty p1 ++ "," ++ pretty p2 ++ ">"
->     pretty (PChoice p1 p2 g) = "(" ++ pretty p1 ++ "|" ++ pretty p2 ++ ")" ++ (show g)
+>     pretty (PChoice ps g) = "(" ++ pretty ps ++ ")" ++ (show g)
 >     pretty (PE r) = show r
 >     pretty (PPlus p1 p2 ) = "(" ++ pretty p1 ++ "," ++ pretty p2 ++ ")"
 >     pretty (PStar p g) = (pretty p) ++ "*" ++ (show g)
@@ -67,12 +72,12 @@
 >     hash (PPair p1 p2) = let x1 = head (hash p1)
 >                              x2 = head (hash p2)
 >                          in x1 `seq` x2 `seq` [ 2 + x1 * primeL + x2 * primeR ] 
->     hash (PChoice p1 p2 Greedy) = let x1 = head (hash p1)
->                                       x2 = head (hash p2)
->                                   in x1 `seq` x2 `seq`  [ 4 + x1 * primeL + x2 * primeR ] 
->     hash (PChoice p1 p2 NotGreedy) = let x1 = head (hash p1)
->                                          x2 = head (hash p2)
->                                      in x1 `seq` x2 `seq` [ 5 + x1 * primeL + x2 * primeR ]
+>     hash (PChoice (p1:p2:_) Greedy) = let x1 = head (hash p1)
+>                                           x2 = head (hash p2)
+>                                       in x1 `seq` x2 `seq`  [ 4 + x1 * primeL + x2 * primeR ] 
+>     hash (PChoice (p1:p2:_) NotGreedy) = let x1 = head (hash p1)
+>                                              x2 = head (hash p2)
+>                                          in x1 `seq` x2 `seq` [ 5 + x1 * primeL + x2 * primeR ]
 >     hash (PPlus p1 p2) = let x1 = head (hash p1)
 >                              x2 = head (hash p2)
 >                          in x1 `seq` x2 `seq` [ 6 + x1 * primeL + x2 * primeR ]
@@ -93,7 +98,7 @@
 > strip (PStar p g) = Star (strip p) g
 > strip (PPair p1 p2) = Seq (strip p1) (strip p2)
 > strip (PPlus p1 p2) = Seq (strip p1) (strip p2)
-> strip (PChoice p1 p2 g) = Choice (strip p1) (strip p2) g
+> strip (PChoice ps g) = Choice (map strip ps) g
 > strip (PEmpty p) = strip p
 
 
@@ -106,7 +111,7 @@
 > mkEmpPat (PStar p g) = PE Empty -- problematic?! we are losing binding (x,()) from  ( x : a*) ~> PE <>
 > mkEmpPat (PPlus p1 p2) = mkEmpPat p1 -- since p2 must be pstar we drop it. If we mkEmpPat p2, we need to deal with pdPat (PPlus (x :<>) (PE <>)) l
 > mkEmpPat (PPair p1 p2) = PPair (mkEmpPat p1) (mkEmpPat p2)
-> mkEmpPat (PChoice p1 p2 g) = PChoice (mkEmpPat p1) (mkEmpPat p2) g
+> mkEmpPat (PChoice ps g) = PChoice (map mkEmpPat ps) g
 
 > {-| function 'pdPat' computes the partial derivatives of a pattern w.r.t. a letter.
 >    Integrating non-greedy operator with PStar
@@ -166,8 +171,8 @@
 >         then [ PPlus p3 p2 | p3  <- pdPat p1 l ] ++ [ PPlus p3 p2' | (PPlus p1' p2') <- pdPat p2 l, let p3 =  p1' `getBindingsFrom` p1 ]
 >         else [ PPlus p3 p2' | (PPlus p1' p2') <- pdPat p2 l, let p3 =  p1' `getBindingsFrom` p1 ] ++ [ PPlus p3 p2 | p3  <- pdPat p1 l ]
 >     | otherwise          = [ PPlus p3 p2 | p3  <- pdPat p1 l ]
-> pdPat (PChoice p1 p2 g) l = 
->    nub ((pdPat p1 l)  ++ (pdPat p2 l)) -- nub doesn't seem to be essential
+> pdPat (PChoice ps g) l = 
+>    nub (concatMap (\p -> pdPat p l) ps) -- nub doesn't seem to be essential
 > pdPat p l = error ((show p) ++ (show l))
 
 > -- | function 'getBindingsFrom' transfer bindings from p2 to p1
@@ -185,7 +190,7 @@
 >           assign (PE r) _ = PE r
 >           assign (PPlus p1 p2) b = PPlus (assign p1 b) p2 -- we don't need to care about p2 since it is a p*
 >           assign (PPair p1 p2) b = PPair (assign p1 b) (assign p2 b)
->           assign (PChoice p1 p2 g) b = PChoice (assign p1 b) (assign p2 b) g
+>           assign (PChoice ps g) b = PChoice (map (\p -> assign p b) ps) g
 
 
 
@@ -194,8 +199,8 @@
 >     isGreedy (PVar _ _ p) = isGreedy p
 >     isGreedy (PE r) = isGreedy r
 >     isGreedy (PPair p1 p2) = isGreedy p1 || isGreedy p2
->     isGreedy (PChoice p1 p2 Greedy) = True
->     isGreedy (PChoice p1 p2 NotGreedy) = False -- isGreedy p1 || isGreedy p2
+>     isGreedy (PChoice ps Greedy) = True
+>     isGreedy (PChoice ps NotGreedy) = False -- isGreedy p1 || isGreedy p2
 >     isGreedy (PEmpty p) = False
 >     isGreedy (PStar p Greedy) = True
 >     isGreedy (PStar p NotGreedy) = False
@@ -214,7 +219,7 @@
 > hasBinder  (PPlus p1 p2) = hasBinder p1 
 > hasBinder  (PStar p1 g)  = hasBinder p1 
 > hasBinder  (PE r)        = False
-> hasBinder  (PChoice p1 p2 g) = (hasBinder p1) || (hasBinder p2)
+> hasBinder  (PChoice ps g) = any hasBinder ps 
 > hasBinder  (PEmpty p) = hasBinder p
                                                       
 
@@ -228,7 +233,7 @@
 > toBinderList  (PPlus p1 p2) = (toBinderList p1) 
 > toBinderList  (PStar p1 g)    = (toBinderList p1) 
 > toBinderList  (PE r)        = []
-> toBinderList  (PChoice p1 p2 g) = (toBinderList p1) ++ (toBinderList p2)
+> toBinderList  (PChoice ps g) = concatMap toBinderList ps 
 > toBinderList  (PEmpty p) = toBinderList p
 
 > listifyBinder :: Binder -> [(Int, [Range])]
@@ -333,8 +338,8 @@
 >          then nub2 ([ (PPair p1' p2, f) | (p1' , f) <- pdPat0 p1 l ] ++ (pdPat0 p2 l))
 >          else nub2 ((pdPat0 p2 l) ++ [ (PPair p1' p2, f) | (p1' , f) <- pdPat0 p1 l ])
 >     else [ (PPair p1' p2, f) | (p1',f) <- pdPat0 p1 l ]
-> pdPat0 (PChoice p1 p2 g) l = 
->      nub2 ((pdPat0 p1 l) ++ (pdPat0 p2 l)) -- nub doesn't seem to be essential
+> pdPat0 (PChoice ps g) l = 
+>      nub2 (concatMap (\p -> pdPat0 p l) ps) -- nub doesn't seem to be essential
 
 
 > nub2 :: Eq a => [(a,b)] -> [(a,b)]
@@ -365,14 +370,9 @@
 >            else if isEpsilon p2'
 >                 then p1'
 >                 else PPair p1' p2'
->     simplify (PChoice p1 p2 g) =
->         let p1' = simplify p1
->             p2' = simplify p2
->         in if isPhi p2'
->            then p1'
->            else if isPhi p1'
->                 then p2'
->                 else PChoice p1' p2' g
+>     simplify (PChoice ps g) =
+>         let ps' = filter (not . isPhi) (map simplify ps)
+>         in  PChoice ps' g
 >     simplify (PStar p g) = PStar (simplify p) g
 >     simplify (PPlus p1 p2) = PPlus (simplify p1) (simplify p2)
 >     simplify (PE r) = PE (simplify r)
@@ -382,7 +382,7 @@
 >    isEpsilon (PVar _ _ p) = isEpsilon p
 >    isEpsilon (PE r) = isEpsilon r                                                        
 >    isEpsilon (PPair p1 p2) =  (isEpsilon p1) && (isEpsilon p2)
->    isEpsilon (PChoice p1 p2 _) =  (isEpsilon p1) && (isEpsilon p2)
+>    isEpsilon (PChoice ps _) =  all isEpsilon ps
 >    isEpsilon (PStar p _) = isEpsilon p
 >    isEpsilon (PPlus p1 p2) = isEpsilon p1 && isEpsilon p2
 >    isEpsilon (PEmpty _) = True
@@ -392,7 +392,7 @@
 >    isPhi (PVar _ _ p) = isPhi p
 >    isPhi (PE r) = isPhi r                                                        
 >    isPhi (PPair p1 p2) =  (isPhi p1) || (isPhi p2)
->    isPhi (PChoice p1 p2 _) =  (isPhi p1) && (isPhi p2)
+>    isPhi (PChoice ps _) =  all isPhi ps
 >    isPhi (PStar p _) = False
 >    isPhi (PPlus p1 p2) = isPhi p1 || isPhi p2
 >    isPhi (PEmpty _) = False
