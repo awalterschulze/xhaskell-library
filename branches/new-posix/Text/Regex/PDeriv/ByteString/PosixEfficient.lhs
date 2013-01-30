@@ -31,6 +31,7 @@ We do not break part the sub-pattern of the original reg, they are always groupe
 > import GHC.Arr 
 > import qualified Data.IntMap as IM
 > import qualified Data.ByteString.Char8 as S
+> import qualified Data.Map as M
 
 
 > import Text.Regex.Base(RegexOptions(..),RegexLike(..),MatchArray)
@@ -39,7 +40,7 @@ We do not break part the sub-pattern of the original reg, they are always groupe
 > import Text.Regex.PDeriv.RE
 > import Text.Regex.PDeriv.Pretty (Pretty(..))
 > import Text.Regex.PDeriv.Common (Range(..), Letter, PosEpsilon(..), my_hash, my_lookup, GFlag(..), IsGreedy(..), preBinder, subBinder, mainBinder)
-> import Text.Regex.PDeriv.IntPattern (Pat(..), pdPat, toBinder, Binder(..), strip, listifyBinder)
+> import Text.Regex.PDeriv.IntPattern (Pat(..), pdPat, toBinder, Binder(..), strip, listifyBinder, Key(..))
 > import Text.Regex.PDeriv.Parse
 > import qualified Text.Regex.PDeriv.Dictionary as D (Dictionary(..), Key(..), insertNotOverwrite, lookupAll, empty, isIn, nub)
 
@@ -123,11 +124,14 @@ The shapes of the input/output Pat and SBinder should be identical.
 >                     , (\i sb -> case sb of 
 >                         { SPair sb1 sb2 cf -> SPair (f1 i sb1) sb2 cf } )
 >                     ) }
-> dPat0 (PChoice ps g) l = 
->    let pf = map (\p -> dPat0 p l) ps
->        nubPF :: [(Pat, Int -> SBinder -> SBinder)] -> [(Pat, Int -> SBinder -> SBinder)] 
->        nubPF [] = []
->        nubPF (pf:pfs) = undefined
+> dPat0 (PChoice ps g) l 
+>    | null ps = []
+>    | otherwise = 
+>    let pfs = map (\p -> dPat0 p l) ps
+>        nubPF :: [[(Pat, Int -> SBinder -> SBinder)]] -> [(Pat, Int -> SBinder -> SBinder)] 
+>        nubPF pfs = nub2Choice pfs M.empty
+>    in nubPF pfs 
+> {-
 >        pf2 = dPat0 p2 l         
 >    in case (pf1,pf2) of 
 >    { ([], []) -> [] 
@@ -148,6 +152,43 @@ The shapes of the input/output Pat and SBinder should be identical.
 >              case sb of { SChoice [sb1,sb2] cf -> SChoice [f1 i sb1, f2 i sb2] cf }))
 >       }
 >    }
+> -}
+
+
+Turns a list of pattern x coercion pairs into a pchoice and a func, duplicate patterns are removed.
+
+> nub2Choice :: [[(Pat, Int -> SBinder -> SBinder)]] -> M.Map Pat (Int -> SBinder -> SBinder) -> [(Pat, Int -> SBinder -> SBinder)] -- the return type is a singleton list.
+> nub2Choice [] pDict = return (PChoice [] Greedy, (\i-> id)) -- the base case is the identity
+> nub2Choice ([]:pfs) pDict = do 
+>      { (PChoice ps g, f'') <- nub2Choice pfs pDict
+>      ; let f' i sb = case sb of
+>            { SChoice (s:ss) cf ->
+>                 f'' i (SChoice ss cf)
+>            ; _ -> error "nub2Choice coercion is applied to a non SChoice"
+>            }
+>      ; return (PChoice ps g, f')
+>      }                                  
+> nub2Choice ([(p,f)]:pfs) pDict  
+>   | p `M.member` pDict = do 
+>      { (PChoice ps g, f'') <- nub2Choice pfs pDict
+>      ; let f' i sb = case sb of
+>            { SChoice (s:ss) cf ->
+>                 f'' i (SChoice ss cf)
+>            ; _ -> error "nub2Choice coercion is applied to a non SChoice"
+>            }
+>      ; return (PChoice ps g, f')
+>      }                                  
+>   | otherwise = do   
+>      { (PChoice ps g, f'') <- nub2Choice pfs (M.insert p f pDict)
+>      ; let f' i sb = case sb of
+>            { SChoice (s:ss) cf ->
+>                let (SChoice ss' cf') = f'' i (SChoice ss cf)
+>                in SChoice ((f i s):ss') cf'
+>            ; _ -> error "nub2Choice coercion is applied to a non SChoice"
+>            }
+>      ; return (PChoice (p:ps) g, f')
+>      }
+
 
 > carryForward :: [SRange] -> SBinder -> SBinder
 > carryForward sr (SVar (v, r) sb' cf) = SVar (v, r) sb' (cf++sr)
@@ -156,6 +197,10 @@ The shapes of the input/output Pat and SBinder should be identical.
 > carryForward sr (SPair sb1 sb2 cf) = SPair sb1 sb2 (cf++sr)
 > carryForward sr (SChoice sbs cf) = SChoice sbs (cf++sr)
 > carryForward sr sb2 = error ("trying to carry forward into a non-annotated pattern binder " ++ (show sb2))
+
+> instance Ord Pat where
+>   compare p1 p2 = compare (hash p1) (hash p2) -- todo: this is not safe.
+
 
 > {-
 > removeNonEmpty :: Pat -> SBinder -> SBinder                                           
@@ -176,12 +221,7 @@ The shapes of the input/output Pat and SBinder should be identical.
 > extract (PE r) (SRE cf) = cf
 > extract (PStar p g) (SStar cf) = cf
 > extract (PPair p1 p2) (SPair sb1 sb2 cf) = (extract p1 sb1) ++ (extract p2 sb2) ++ cf
-> extract (PChoice p1 p2 g) (SChoice [sb1, sb2] cf) = 
->     let r1 = extract p1 sb1
->         r2 = extract p2 sb2          
->     in if null r1 
->     then r2 ++ cf
->     else r1 ++ cf         
+> extract (PChoice ps g) (SChoice sbs cf) = (concatMap (\(p,sb) -> extract p sb) (zip ps sbs)) ++ cf
 
 
 > updateRange :: Int -> [Range] -> [Range]
@@ -207,15 +247,15 @@ The shapes of the input/output Pat and SBinder should be identical.
 x0 :: (x1 :: ( x2 :: (ab|a), x3 :: (baa|a)), x4 :: (ac|c))
 
 > p4 = PVar 0 [] (PPair (PVar 1 [] ((PPair p_x p_y))) p_z)
->    where p_x = PVar 2 [] (PE (Choice (L 'A') (Seq (L 'A') (L 'B')) Greedy))      
->          p_y = PVar 3 [] (PE (Choice (Seq (L 'B') (Seq (L 'A') (L 'A'))) (L 'A') Greedy))
->          p_z = PVar 4 [] (PE (Choice (Seq (L 'A') (L 'C')) (L 'C') Greedy))
+>    where p_x = PVar 2 [] (PE (Choice [(L 'A'),(Seq (L 'A') (L 'B'))] Greedy))      
+>          p_y = PVar 3 [] (PE (Choice [(Seq (L 'B') (Seq (L 'A') (L 'A'))), (L 'A')] Greedy))
+>          p_z = PVar 4 [] (PE (Choice [(Seq (L 'A') (L 'C')), (L 'C')] Greedy))
 
 
 x0 :: ( x1 :: (  x2 :: (x3:: a | x4 :: ab) | x5 :: b)* )
 
 
-> p3 = PVar 0 [] (PStar ( PVar 1 [] ( PChoice (PVar 2 [] (PChoice p3 p4 Greedy)) p5 Greedy)) Greedy)
+> p3 = PVar 0 [] (PStar ( PVar 1 [] ( PChoice [(PVar 2 [] (PChoice [p3,p4] Greedy)), p5] Greedy)) Greedy)
 >    where p3 = PVar 3 [] (PE (L 'A'))
 >          p4 = PVar 4 [] (PE (Seq (L 'A') (L 'B')))           
 >          p5 = PVar 5 [] (PE (L 'B'))

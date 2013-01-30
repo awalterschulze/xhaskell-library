@@ -12,6 +12,7 @@
 >     , pdPat0
 >     , pdPat0Sim
 >     , nub2
+>     , Key(..)
 >     )
 >     where
 
@@ -78,6 +79,10 @@
 >     hash (PChoice (p1:p2:_) NotGreedy) = let x1 = head (hash p1)
 >                                              x2 = head (hash p2)
 >                                          in x1 `seq` x2 `seq` [ 5 + x1 * primeL + x2 * primeR ]
+>     hash (PChoice (p1:_) _) = let x1 = head (hash p1)
+>                           
+>                               in x1 `seq`  [ 5 + x1 * primeL ]
+>     hash (PChoice [] _) = [5]
 >     hash (PPlus p1 p2) = let x1 = head (hash p1)
 >                              x2 = head (hash p2)
 >                          in x1 `seq` x2 `seq` [ 6 + x1 * primeL + x2 * primeR ]
@@ -89,7 +94,7 @@
 >                   in x `seq` [ 9 + x * primeL ]
 >     hash (PEmpty p) = let x = head (hash p)
 >                       in x `seq` [ 3 + x * primeL ]
->
+>     hash p = error ("hash is applied to an unacceptable pattern " ++ (show p))
 
 > -- | function 'strip' strips away the bindings from a pattern
 > strip :: Pat -> RE 
