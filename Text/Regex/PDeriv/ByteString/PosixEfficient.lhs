@@ -115,7 +115,7 @@ The shapes of the input/output Pat and SBinder should be identical.
 >                     , (\i sb -> case sb of 
 >                         { SPair sb1 sb2 cf -> 
 >                            let sb1' = rm sb1
->                            in SChoice [ SPair (f1 i sb1) sb2 cf, carryForward (sb1'++cf) (f2 i sb2) ] [] -- TODO: we need to shift the sb1 to sb2 in the (f2 i sb2)
+>                            in SChoice [ SPair (f1 i sb1) sb2 cf, carryForward (sb1'++cf) (f2 i sb2) ] [] -- we shift the sb1 to sb2 in the (f2 i sb2)
 >                         } )
 >                     ) }
 >         }
@@ -126,33 +126,17 @@ The shapes of the input/output Pat and SBinder should be identical.
 >                     ) }
 > dPat0 (PChoice ps g) l 
 >    | null ps = []
+>    | length ps == 1 = do -- singleton choice, we eliminate the choice
+>       { p <- ps  
+>       ; (p',f) <- dPat0 p l                
+>       ; let f' = \i sb -> case sb of { SChoice [sb'] cf -> carryForward cf (f i sb')  }
+>       ; return (p', f')
+>       }  
 >    | otherwise = 
 >    let pfs = map (\p -> dPat0 p l) ps
 >        nubPF :: [[(Pat, Int -> SBinder -> SBinder)]] -> [(Pat, Int -> SBinder -> SBinder)] 
 >        nubPF pfs = nub2Choice pfs M.empty
 >    in nubPF pfs 
-> {-
->        pf2 = dPat0 p2 l         
->    in case (pf1,pf2) of 
->    { ([], []) -> [] 
->    ; ([], _ ) -> do 
->       { (p2', f2) <- pf2
->       ; return (p2', (\i sb -> case sb of 
->                      { SChoice [sb1,sb2] cf -> carryForward cf (f2 i sb2) }))
->       }
->    ; (_ , []) -> do 
->       { (p1', f1) <- pf1
->       ; return (p1', (\i sb -> case sb of 
->                      { SChoice [sb1,sb2] cf -> carryForward cf (f1 i sb1) }))
->       }
->    ; _ -> do   
->       { (p1',f1) <- pf1
->       ; (p2',f2) <- pf2
->       ; return (PChoice p1' p2' g, (\i sb ->                       
->              case sb of { SChoice [sb1,sb2] cf -> SChoice [f1 i sb1, f2 i sb2] cf }))
->       }
->    }
-> -}
 
 
 Turns a list of pattern x coercion pairs into a pchoice and a func, duplicate patterns are removed.
@@ -202,18 +186,6 @@ Turns a list of pattern x coercion pairs into a pchoice and a func, duplicate pa
 >   compare p1 p2 = compare (hash p1) (hash p2) -- todo: this is not safe.
 
 
-> {-
-> removeNonEmpty :: Pat -> SBinder -> SBinder                                           
-> removeNonEmpty (PVar x w p) (SVar (_,b) sb cf) 
->       | posEpsilon (strip p) = SVar (x,b) (removeNonEmpty p sb) cf
->       | otherwise = SVar (x,[]) SRE cf
-> removeNonEmpty (PE r) SRE = SRE
-> removeNonEmpty (PStar p g) SStar = SStar 
-> removeNonEmpty (PPair p1 p2) (SPair sb1 sb2) = SPair (removeNonEmpty p1 sb1) (removeNonEmpty p2 sb2) 
-> removeNonEmpty (PChoice p1 p2 g) (SChoice [sb1, sb2]) = 
->       SChoice [removeNonEmpty p1 sb1, removeNonEmpty p2 sb2]
-> -}
-
 > extract :: Pat -> SBinder -> [SRange]
 > extract (PVar x w p) (SVar (_,b) sb cf)
 >      | posEpsilon (strip p) = (x,b):(extract p sb) ++ cf
@@ -242,6 +214,20 @@ Turns a list of pattern x coercion pairs into a pchoice and a func, duplicate pa
 >      ; matchInner [(p', f (snd l) sb)] ls 
 >      }
 
+
+> type Env = [(Int,[SRange])]
+
+> match :: Pat -> [Char] -> [Env]
+> match p w = map sbinderToEnv (matchInner [(p, toSBinder p)] (zip w [1..]))
+
+> posixMatch :: Pat -> [Char] -> Maybe Env
+> posixMatch p w = case match p w of
+>   { (e:_) -> Just e ; _ -> Nothing }
+
+> sbinderToEnv :: SBinder -> [Env]
+> sbinderToEnv (SChoice [] _) = []
+> sbinderToEnv (SChoice (sb:_) cf) = sbinderToEnv sb ++ cf
+> sbinderToEnv (SPair sb1 sb2 cf) = undefined
 
 
 x0 :: (x1 :: ( x2 :: (ab|a), x3 :: (baa|a)), x4 :: (ac|c))
