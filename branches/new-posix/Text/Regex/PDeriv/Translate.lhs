@@ -442,7 +442,7 @@ e ~>_r r
 >       do { rs <- mapM r_trans es
 >          ; case rs of
 >            { [] -> return Phi
->            ; (r:rs) -> return (Choice rs Greedy)
+>            ; (r:rs) -> return (Choice (r:rs) Greedy)
 >            }
 >          }
 >     ; EConcat es ->

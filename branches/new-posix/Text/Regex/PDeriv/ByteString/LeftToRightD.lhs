@@ -513,18 +513,18 @@ Compilation
 -- p4 = << x : (A|<A,B>), y : (<B,<A,A>>|A) >, z : (<A,C>|C) > 
 
 > p4 = PPair (PPair p_x p_y) p_z
->    where p_x = PVar 1 [] (PE (Choice (L 'A') (Seq (L 'A') (L 'B')) Greedy))      
->          p_y = PVar 2 [] (PE (Choice (Seq (L 'B') (Seq (L 'A') (L 'A'))) (L 'A') Greedy))
->          p_z = PVar 3 [] (PE (Choice (Seq (L 'A') (L 'C')) (L 'C') Greedy))
+>    where p_x = PVar 1 [] (PE (Choice [L 'A', Seq (L 'A') (L 'B')] Greedy))      
+>          p_y = PVar 2 [] (PE (Choice [Seq (L 'B') (Seq (L 'A') (L 'A')), (L 'A')] Greedy))
+>          p_z = PVar 3 [] (PE (Choice [Seq (L 'A') (L 'C'), L 'C'] Greedy))
 
 > input = S.pack "ABAAC"  -- long(posix) vs greedy match
 
 
-> p5 = PStar (PVar 1 [] (PE (Choice (L 'A') (Choice (L 'B') (L 'C') Greedy) Greedy))) Greedy
+> p5 = PStar (PVar 1 [] (PE (Choice [(L 'A'), (Choice [L 'B', L 'C'] Greedy)] Greedy))) Greedy
 
 pattern = ( x :: (A|C), y :: (B|()) )*
 
-> p6 = PStar (PPair (PVar 1 [] (PE (Choice (L 'A') (L 'C') Greedy))) (PVar 2 [] (PE (Choice (L 'B') Empty Greedy)))) Greedy
+> p6 = PStar (PPair (PVar 1 [] (PE (Choice [L 'A', L 'C'] Greedy))) (PVar 2 [] (PE (Choice [(L 'B'), Empty] Greedy)))) Greedy
 
 pattern = ( x :: ( y :: A, z :: B )* )
 
@@ -545,14 +545,14 @@ pattern = ( x :: A*?, y :: A*)
 
 pattern = ( x :: (A|B)*?, (y :: (B*,A*)))
 
-> p10 = PPair (PVar 1 [] (PE (Star (Choice (L 'A') (L 'B') Greedy) NotGreedy))) (PVar 2 [] (PE (Seq (Star (L 'B') Greedy) (Star (L 'A') Greedy))))
+> p10 = PPair (PVar 1 [] (PE (Star (Choice [(L 'A'), (L 'B')] Greedy) NotGreedy))) (PVar 2 [] (PE (Seq (Star (L 'B') Greedy) (Star (L 'A') Greedy))))
 
 > input10 = S.pack "ABA"
 
 
 pattern = <(x :: (0|...|9)+?)*, (y :: (0|...|9)+?)*, (z :: (0|...|9)+?)*>
 
-> digits_re = foldl' (\x y -> Choice x y Greedy) (L '0') (map L "123456789")
+> digits_re = foldl' (\x y -> Choice [x,y] Greedy) (L '0') (map L "123456789")
 
 > p11 = PPair (PStar (PVar 1 [] (PE (Seq digits_re (Star digits_re Greedy)))) Greedy) (PPair (PStar (PVar 2 [] (PE (Seq digits_re (Star digits_re Greedy)))) Greedy) (PPair (PStar (PVar 3 [] (PE (Seq digits_re (Star digits_re Greedy)))) Greedy) (PStar (PVar 4 [] (PE (Seq digits_re (Star digits_re Greedy)))) Greedy)))
 

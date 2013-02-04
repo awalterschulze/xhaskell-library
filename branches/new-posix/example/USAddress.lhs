@@ -1,6 +1,6 @@
 > module Main where
 
-> import Text.Regex.PDeriv.ByteString
+> import Text.Regex.PDeriv.ByteString.PosixEfficient
 
 > import qualified Data.ByteString.Char8 as S
 

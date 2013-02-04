@@ -10,8 +10,8 @@ We do not break part the sub-pattern of the original reg, they are always groupe
 >     FlexibleInstances, TypeSynonymInstances, FlexibleContexts #-} 
 
 
-> module Text.Regex.PDeriv.ByteString.Posix
-> {-    ( Regex
+> module Text.Regex.PDeriv.ByteString.PosixEfficient
+>     ( Regex
 >     , CompOption(..)
 >     , ExecOption(..)
 >     , defaultCompOpt
@@ -19,7 +19,7 @@ We do not break part the sub-pattern of the original reg, they are always groupe
 >     , compile
 >     , execute
 >     , regexec
->     ) -} where 
+>     ) where 
 
 
 > import System.IO.Unsafe
@@ -69,16 +69,16 @@ We do not break part the sub-pattern of the original reg, they are always groupe
 The invariance: 
 The shapes of the input/output Pat and SBinder should be identical.
                    
-> dPat0 :: Pat -> Letter -> [(Pat, Int -> SBinder -> SBinder)]  -- the lists are always singleton,
-> dPat0 (PVar x w p) (l, idx) = 
->    do { (p',f) <- dPat0 p (l, idx)  
+> dPat0 :: Pat -> Char -> [(Pat, Int -> SBinder -> SBinder)]  -- the lists are always singleton,
+> dPat0 (PVar x w p) l = 
+>    do { (p',f) <- dPat0 p l
 >       ; return (PVar x [] p', (\i sb -> 
 >                              case sb of 
 >                              { SVar (v, r) sb' cf -> SVar (v, updateRange i r) (f i sb') cf
 >                              ; _ -> error ("dPat0 failed with pattern " ++ (show (PVar x w p))  ++ " and binding " ++ (show sb))
 >                              }) ) }
 
-> dPat0 (PE r) (l, idx) =
+> dPat0 (PE r) l =
 >    let pds = partDeriv r l
 >    in pds `seq` if null pds then []
 >                 else [ (PE (resToRE pds), (\_ -> id) )]  
@@ -135,7 +135,7 @@ The shapes of the input/output Pat and SBinder should be identical.
 >    | otherwise = 
 >    let pfs = map (\p -> dPat0 p l) ps
 >        nubPF :: [[(Pat, Int -> SBinder -> SBinder)]] -> [(Pat, Int -> SBinder -> SBinder)] 
->        nubPF pfs = nub2Choice pfs M.empty
+>        nubPF pfs = nub2Choice pfs M.empty 
 >    in nubPF pfs 
 
 
@@ -183,6 +183,16 @@ Turns a list of pattern x coercion pairs into a pchoice and a func, duplicate pa
 > carryForward sr sb2 = error ("trying to carry forward into a non-annotated pattern binder " ++ (show sb2))
 
 > instance Ord Pat where
+>   compare (PVar x1 _ p1) (PVar x2 _ p2) 
+>      | x1 == x2 = compare p1 p2
+>      | otherwise = compare x1 x2
+>   compare (PE r1) (PE r2) = compare r1 r2 -- todo: this is not safe
+>   compare (PStar p1 _) (PStar p2 _) = compare p1 p2 
+>   compare (PPair p1 p2) (PPair p3 p4) = let r = compare p1 p3 in case r of 
+>      { EQ -> compare p2 p4
+>      ; _  -> r }
+>   compare (PChoice ps1 _) (PChoice ps2 _) = 
+>      compare ps1 ps2
 >   compare p1 p2 = compare (hash p1) (hash p2) -- todo: this is not safe.
 
 
@@ -210,27 +220,120 @@ Turns a list of pattern x coercion pairs into a pchoice and a func, duplicate pa
 > matchInner pb [] = pb
 > matchInner pb (l:ls) = 
 >   do { (p,sb) <- pb  
->      ; (p',f) <- dPat0 p l
+>      ; (p',f) <- dPat0 p (fst l)
 >      ; matchInner [(p', f (snd l) sb)] ls 
 >      }
 
 
-> type Env = [(Int,[SRange])]
+> type Env = [SRange]
 
 > match :: Pat -> [Char] -> [Env]
-> match p w = map sbinderToEnv (matchInner [(p, toSBinder p)] (zip w [1..]))
+> match p w = do { (p',sb) <- matchInner [(p, toSBinder p)] (zip w [1..])  
+>                ; sbinderToEnv p' sb }
 
 > posixMatch :: Pat -> [Char] -> Maybe Env
 > posixMatch p w = case match p w of
 >   { (e:_) -> Just e ; _ -> Nothing }
 
-> sbinderToEnv :: SBinder -> [Env]
-> sbinderToEnv (SChoice [] _) = []
-> sbinderToEnv (SChoice (sb:_) cf) = sbinderToEnv sb ++ cf
-> sbinderToEnv (SPair sb1 sb2 cf) = undefined
+> sbinderToEnv :: Pat -> SBinder -> [Env]
+> sbinderToEnv _ (SChoice [] _) = []
+> sbinderToEnv (PChoice (p:ps) g) (SChoice (sb:sbs) cf) 
+>   | posEpsilon (strip p) = 
+>   do { env <- sbinderToEnv p sb
+>      ; return (env ++ cf) }
+>   | otherwise = sbinderToEnv (PChoice ps g) (SChoice sbs cf)
+> sbinderToEnv (PPair p1 p2) (SPair sb1 sb2 cf) = do { e1 <- sbinderToEnv p1 sb1 
+>                                                    ; e2 <- sbinderToEnv p2 sb2
+>                                                    ; return (e1 ++ e2) }
+> sbinderToEnv (PVar x _ p) (SVar sr sb cf) 
+>   | posEpsilon (strip p) = do { env <- sbinderToEnv p sb
+>                       ; return ((sr:env) ++ cf) }
+>   | otherwise = []
+> sbinderToEnv (PStar _ _) (SStar cf) = [cf]
+> sbinderToEnv (PE _) (SRE cf) = [cf]
 
+
+> type DfaTable = IM.IntMap (Int, Int -> SBinder -> SBinder, SBinder -> [Env])
+
+> compilePat :: Pat -> (DfaTable,SBinder, SBinder -> [Env], [Int])
+> compilePat p = buildDfaTable p 
+
+
+> buildDfaTable :: Pat -> (DfaTable, SBinder, SBinder -> [Env], [Int])
+> buildDfaTable p = 
+>   let sig = sigmaRE (strip p)
+>       init_dict = M.insert p 0 M.empty        
+>       (allStates, delta, mapping) = builder sig [] [] init_dict 0 [p] -- 0 is already used by p
+>       pat2id p = case M.lookup p mapping of 
+>              { Just i -> i 
+>              ; Nothing -> error "pattern not found, this should not happen." }
+>       delta' = map (\ (s,c,d,f) -> (pat2id s, c, pat2id d, f, sbinderToEnv d) ) delta
+>       table = IM.fromList (map (\ (s,c,d,f,sb2env) -> (my_hash s c, (d,f,sb2env))) delta')
+>       finals = map pat2id (filter (\p -> posEpsilon (strip p) ) allStates)
+>   in (table, toSBinder p, sbinderToEnv p, finals)
+
+
+> {-
+> f p = 
+>   let sig = sigmaRE (strip p)
+>       init_dict = M.insert p 0 M.empty        
+>       (allStates, delta, mapping) = builder sig [] [] init_dict 0 [p]
+>       pat2id p = case M.lookup p mapping of 
+>              { Just i -> i 
+>              ; Nothing -> error "pattern not found, this should not happen." }
+>       delta' = map (\ (s,c,d,f) -> (pat2id s, c, pat2id d, f, sbinderToEnv d) ) delta
+>       table = IM.fromList (map (\ (s,c,d,f,sb2env) -> (my_hash s c, (d,f,sb2env))) delta')
+>   in (map (\p -> (p, pat2id p)) allStates) -- (table, allStates, delta, delta')
+> -}
+
+> builder :: [Char] 
+>         -> [Pat] 
+>         -> [ (Pat,Char,Pat,Int -> SBinder -> SBinder) ] 
+>         -> M.Map Pat Int
+>         -> Int
+>         -> [Pat]
+>         -> ([Pat], [ (Pat,Char,Pat,Int -> SBinder -> SBinder) ], M.Map Pat Int)
+> builder sig acc_pats acc_delta dict max_id curr_pats 
+>    | null curr_pats = (acc_pats, acc_delta, dict)
+>    | otherwise = 
+>       let all_sofar_pats = acc_pats ++ curr_pats
+>           new_delta      = [ (p,l,p',f') | p <- curr_pats, l <- sig, (p',f') <- dPat0 p l  ]
+>           new_pats       = D.nub [ p' | (p,l,p',f') <- new_delta, not (p' `M.member` dict) ]
+>           acc_delta_next = acc_delta ++ new_delta
+>           (dict',max_id') = foldl' (\(d,id) p -> (M.insert p (id+1) d, id + 1)) (dict,max_id) new_pats
+>       in builder sig all_sofar_pats acc_delta_next dict' max_id' new_pats     
+
+> type Word = S.ByteString
+
+> execDfa :: Int -> DfaTable -> Word -> [(Int, SBinder, SBinder -> [Env])] -> [(Int,SBinder, SBinder -> [Env])]
+> execDfa cnt dfaTable w' [] = []
+> execDfa cnt dfaTable w' currDfaStateSBinders = 
+>      case S.uncons w' of
+>        Nothing -> currDfaStateSBinders
+>        Just (l,w) -> 
+>           let ((i,sb,_):_) = currDfaStateSBinders
+>               k              = my_hash i l
+>           in case IM.lookup k dfaTable of
+>               { Nothing -> [] -- error (" k not found " ++ show i ++ " " ++  show l)
+>               ; Just (j, f, sb2env) -> 
+>                  let sb' = cnt `seq` sb `seq` f cnt sb
+>                      nextDfaStateSBinders =  [(j, sb',sb2env)] 
+>                      cnt' = cnt + 1
+>                  in nextDfaStateSBinders `seq` cnt' `seq` w `seq` 
+>                     execDfa cnt' dfaTable w nextDfaStateSBinders
+>               }
 
 x0 :: (x1 :: ( x2 :: (ab|a), x3 :: (baa|a)), x4 :: (ac|c))
+
+> execPatMatch :: (DfaTable, SBinder, SBinder -> [Env], [Int]) -> Word -> Maybe Env
+> execPatMatch (dt, init_sbinder, init_sb2env, finals) w = 
+>   let r = execDfa 0 dt w [(0, init_sbinder, init_sb2env)]
+>   in case r of 
+>    { [] -> Nothing 
+>    ; ((i,sb,sb2env):_) -> case (sb2env sb) of 
+>                           { [] -> Nothing 
+>                           ; (e:_) -> Just e } }
+
 
 > p4 = PVar 0 [] (PPair (PVar 1 [] ((PPair p_x p_y))) p_z)
 >    where p_x = PVar 2 [] (PE (Choice [(L 'A'),(Seq (L 'A') (L 'B'))] Greedy))      
@@ -245,3 +348,99 @@ x0 :: ( x1 :: (  x2 :: (x3:: a | x4 :: ab) | x5 :: b)* )
 >    where p3 = PVar 3 [] (PE (L 'A'))
 >          p4 = PVar 4 [] (PE (Seq (L 'A') (L 'B')))           
 >          p5 = PVar 5 [] (PE (L 'B'))
+
+
+> -- | The PDeriv backend spepcific 'Regex' type
+> -- | the IntMap keeps track of the auxillary binder generated because of posix matching, i.e. all sub expressions need to be tag
+> -- | the FollowBy keeps track of the order of the pattern binder 
+> type Regex = (DfaTable, SBinder, SBinder -> [Env], [Int])
+
+
+-- todo: use the CompOption and ExecOption
+
+> compile :: CompOption -- ^ Flags (summed together)
+>         -> ExecOption -- ^ Flags (summed together) 
+>         -> S.ByteString -- ^ The regular expression to compile
+>         -> Either String Regex -- ^ Returns: the compiled regular expression
+> compile compOpt execOpt bs =
+>     case parsePatPosix (S.unpack bs) of
+>     Left err -> Left ("parseRegex for Text.Regex.PDeriv.ByteString failed:"++show err)
+>     Right (pat,_) -> Right (patToRegex pat compOpt execOpt)
+>     where 
+>       patToRegex p _ _ =  compilePat p
+
+
+
+> execute :: Regex      -- ^ Compiled regular expression
+>        -> S.ByteString -- ^ ByteString to match against
+>        -> Either String (Maybe Env)
+> execute r bs = Right (execPatMatch r bs)
+
+> regexec :: Regex      -- ^ Compiled regular expression
+>        -> S.ByteString -- ^ ByteString to match against
+>        -> Either String (Maybe (S.ByteString, S.ByteString, S.ByteString, [S.ByteString]))
+> regexec r bs =
+>  case execPatMatch r bs of
+>    Nothing -> Right Nothing
+>    Just env ->
+>      let pre = case lookup preBinder env of { Just e -> rg_collect_many bs e ; Nothing -> S.empty }
+>          post = case lookup subBinder env of { Just e -> rg_collect_many bs e ; Nothing -> S.empty }
+>          full_len = S.length bs
+>          pre_len = S.length pre
+>          post_len = S.length post
+>          main_len = full_len - pre_len - post_len
+>          main_and_post = S.drop pre_len bs
+>          main = main_and_post `seq` main_len `seq` S.take main_len main_and_post
+>          matched = map ((rg_collect_many bs) . snd) (filter (\(v,w) -> v > mainBinder && v < subBinder ) env)
+>      in -- logger (print (show env)) `seq` 
+>             Right (Just (pre,main,post,matched))
+
+> rg_collect :: S.ByteString -> Range -> S.ByteString
+> rg_collect w (Range i j) = S.take (j' - i') (S.drop i' w)
+>	       where i' = fromIntegral i
+>	             j' = fromIntegral j
+
+> rg_collect_many w rs = foldl S.append S.empty $ map (rg_collect w) rs
+
+
+> -- | Control whether the pattern is multiline or case-sensitive like Text.Regex and whether to
+> -- capture the subgroups (\1, \2, etc).  Controls enabling extra anchor syntax.
+> data CompOption = CompOption {
+>       caseSensitive :: Bool    -- ^ True in blankCompOpt and defaultCompOpt
+>     , multiline :: Bool 
+>   {- ^ False in blankCompOpt, True in defaultCompOpt. Compile for
+>   newline-sensitive matching.  "By default, newline is a completely ordinary
+>   character with no special meaning in either REs or strings.  With this flag,
+>   inverted bracket expressions and . never match newline, a ^ anchor matches the
+>   null string after any newline in the string in addition to its normal
+>   function, and the $ anchor matches the null string before any newline in the
+>   string in addition to its normal function." -}
+>     , rightAssoc :: Bool       -- ^ True (and therefore Right associative) in blankCompOpt and defaultCompOpt
+>     , newSyntax :: Bool        -- ^ False in blankCompOpt, True in defaultCompOpt. Add the extended non-POSIX syntax described in "Text.Regex.TDFA" haddock documentation.
+>     , lastStarGreedy ::  Bool  -- ^ False by default.  This is POSIX correct but it takes space and is slower.
+>                                -- Setting this to true will improve performance, and should be done
+>                                -- if you plan to set the captureGroups execoption to False.
+>     } deriving (Read,Show)
+
+> data ExecOption = ExecOption  {
+>   captureGroups :: Bool    -- ^ True by default.  Set to False to improve speed (and space).
+>   } deriving (Read,Show)
+
+> instance RegexOptions Regex CompOption ExecOption where
+>     blankCompOpt =  CompOption { caseSensitive = True
+>                                , multiline = False
+>                                , rightAssoc = True
+>                                , newSyntax = False
+>                                , lastStarGreedy = False
+>                                  }
+>     blankExecOpt =  ExecOption { captureGroups = True }
+>     defaultCompOpt = CompOption { caseSensitive = True
+>                                 , multiline = True
+>                                 , rightAssoc = True
+>                                 , newSyntax = True
+>                                 , lastStarGreedy = False
+>                                   }
+>     defaultExecOpt =  ExecOption { captureGroups = True }
+>     setExecOpts e r = undefined
+>     getExecOpts r = undefined 
+
