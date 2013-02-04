@@ -34,6 +34,21 @@
 >     (==) _ _ = False
 
 
+> instance Ord RE where
+>     compare Empty Empty = EQ
+>     compare (L x) (L y) = compare x y
+>     compare (Choice rs1 _) (Choice rs2 _) = compare rs1 rs2
+>     compare (Seq r1 r2) (Seq r3 r4) = 
+>       let x = compare r1 r3   
+>       in case x of 
+>       { EQ -> compare r2 r4
+>       ; _  -> x }
+>     compare (Star r1 _) (Star r2 _) = compare r1 r2
+>     compare Any Any = EQ
+>     compare (Not cs) (Not cs') = compare cs cs'
+>     compare r1 r2 = compare (hash r1) (hash r2)
+
+
 > -- | A pretty printing function for regular expression
 > instance Show RE where
 >     show Phi = "{}"

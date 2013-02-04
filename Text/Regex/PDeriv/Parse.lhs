@@ -1,5 +1,5 @@
 > {-# LANGUAGE FlexibleContexts #-}
-> module Text.Regex.PDeriv.Parse (parsePat, parsePatPosix) where
+> module Text.Regex.PDeriv.Parse (parsePat, parseEPat, parsePatPosix) where
 
 > {- By Kenny Zhuo Ming Lu and Martin Sulzmann, 2009. BSD3 -}
 
