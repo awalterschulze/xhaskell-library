@@ -235,6 +235,8 @@ Turns a list of pattern x coercion pairs into a pchoice and a func, duplicate pa
 > posixMatch p w = case match p w of
 >   { (e:_) -> Just e ; _ -> Nothing }
 
+get all envs from the sbinder
+
 > sbinderToEnv :: Pat -> SBinder -> [Env]
 > sbinderToEnv _ (SChoice [] _) = []
 > sbinderToEnv (PChoice (p:ps) g) (SChoice (sb:sbs) cf) 
@@ -256,7 +258,8 @@ Turns a list of pattern x coercion pairs into a pchoice and a func, duplicate pa
 > type DfaTable = IM.IntMap (Int, Int -> SBinder -> SBinder, SBinder -> [Env])
 
 > compilePat :: Pat -> (DfaTable,SBinder, SBinder -> [Env], [Int])
-> compilePat p = buildDfaTable p 
+> compilePat p = let (t, sb, toEnv, finals) = buildDfaTable p 
+>                in (t, sb, toEnv, finals)
 
 
 > buildDfaTable :: Pat -> (DfaTable, SBinder, SBinder -> [Env], [Int])
@@ -305,7 +308,7 @@ Turns a list of pattern x coercion pairs into a pchoice and a func, duplicate pa
 
 > type Word = S.ByteString
 
-> execDfa :: Int -> DfaTable -> Word -> [(Int, SBinder, SBinder -> [Env])] -> [(Int,SBinder, SBinder -> [Env])]
+> execDfa :: Int -> DfaTable -> Word -> [(Int, SBinder, SBinder -> [Env])] -> [(Int,SBinder, SBinder -> [Env])] -- the list is always singleton, since it is a dfa
 > execDfa cnt dfaTable w' [] = []
 > execDfa cnt dfaTable w' currDfaStateSBinders = 
 >      case S.uncons w' of
@@ -325,12 +328,12 @@ Turns a list of pattern x coercion pairs into a pchoice and a func, duplicate pa
 
 x0 :: (x1 :: ( x2 :: (ab|a), x3 :: (baa|a)), x4 :: (ac|c))
 
-> execPatMatch :: (DfaTable, SBinder, SBinder -> [Env], [Int]) -> Word -> Maybe Env
-> execPatMatch (dt, init_sbinder, init_sb2env, finals) w = 
+> execPatMatch :: (DfaTable, SBinder, SBinder -> [Env], [Int], FollowBy, IM.IntMap ()) -> Word -> Maybe Env
+> execPatMatch (dt, init_sbinder, init_sb2env, finals, _, _) w = 
 >   let r = execDfa 0 dt w [(0, init_sbinder, init_sb2env)]
 >   in case r of 
 >    { [] -> Nothing 
->    ; ((i,sb,sb2env):_) -> case (sb2env sb) of 
+>    ; ((i,sb,sb2env):_) -> case (sb2env sb) of -- todo: check i `elem` finals?
 >                           { [] -> Nothing 
 >                           ; (e:_) -> Just e } }
 
@@ -353,7 +356,7 @@ x0 :: ( x1 :: (  x2 :: (x3:: a | x4 :: ab) | x5 :: b)* )
 > -- | The PDeriv backend spepcific 'Regex' type
 > -- | the IntMap keeps track of the auxillary binder generated because of posix matching, i.e. all sub expressions need to be tag
 > -- | the FollowBy keeps track of the order of the pattern binder 
-> type Regex = (DfaTable, SBinder, SBinder -> [Env], [Int])
+> type Regex = (DfaTable, SBinder, SBinder -> [Env], [Int], FollowBy, IM.IntMap ())
 
 
 -- todo: use the CompOption and ExecOption
@@ -365,9 +368,14 @@ x0 :: ( x1 :: (  x2 :: (x3:: a | x4 :: ab) | x5 :: b)* )
 > compile compOpt execOpt bs =
 >     case parsePatPosix (S.unpack bs) of
 >     Left err -> Left ("parseRegex for Text.Regex.PDeriv.ByteString failed:"++show err)
->     Right (pat,_) -> Right (patToRegex pat compOpt execOpt)
->     where 
->       patToRegex p _ _ =  compilePat p
+>     Right (pat,posixBnd) -> 
+>        Right (patToRegex pat posixBnd compOpt execOpt)
+
+
+> patToRegex p posixBnd compOpt execOpt  =  
+>     let (t, sb, toEnv, finals) = compilePat p
+>         fb = followBy p
+>     in (t, sb, toEnv, finals, fb, posixBnd)
 
 
 
@@ -444,3 +452,90 @@ x0 :: ( x1 :: (  x2 :: (x3:: a | x4 :: ab) | x5 :: b)* )
 >     setExecOpts e r = undefined
 >     getExecOpts r = undefined 
 
+
+
+> instance RegexLike Regex S.ByteString where 
+> -- matchAll :: regex -> source -> [MatchArray]
+>    matchAll = execPatMatchArray
+> -- matchOnce :: regex -> source -> Maybe MatchArray
+>    matchOnce = posixPatMatchArray
+> -- matchCount :: regex -> source -> Int
+> -- matchTest :: regex -> source -> Bool
+> -- matchAllText :: regex -> source -> [MatchText source]
+> -- matchOnceText :: regex -> source -> Maybe (source, MatchText source, source)
+>     
+
+
+
+> execPatMatchArray ::  (DfaTable, SBinder, SBinder -> [Env], [Int], FollowBy, IM.IntMap ()) -> Word -> [MatchArray]
+> execPatMatchArray (dt, init_sbinder, init_sb2env, finals, fb, posixBinder)  w =
+>   let r = execDfa 0 dt w [(0, init_sbinder, init_sb2env)]
+>   in case r of 
+>    { [] -> [] 
+>    ; ((i,sb,sb2env):_) -> map (\ env -> sbinderToMatchArray (S.length w) fb posixBinder (IM.fromList env)) (sb2env sb) 
+>    }
+
+> updateEmptyBinder b fb = 
+>     let 
+>         up b (x,y) = case IM.lookup x b of 
+>                      { Just (_:_) -> -- non-empty, nothing to do
+>                        b
+>                      ; Just [] ->  -- lookup the predecessor
+>                        case IM.lookup y b of
+>                        { Just r@(_:_) -> let i = snd (last r)
+>                                          in IM.update (\_ -> Just [(i,i)]) x b
+>                        ; _ -> b }
+>                      ; Nothing -> b }
+>     in foldl up b fb
+
+> sbinderToMatchArray l fb posixBnd b  = 
+>     let -- b'        = updateEmptyBinder b fb
+>         subPatB   = filter (\(x,_) -> x > mainBinder && x < subBinder && x `IM.notMember` posixBnd ) (listifyBinder b)
+>         mbPrefixB = IM.lookup preBinder b
+>         mbSubfixB = IM.lookup subBinder b
+>         mainB     = case (mbPrefixB, mbSubfixB) of
+>                       (Just [(Range _ x)], Just [(Range y _)]) -> (x, y - x)
+>                       (Just [(Range _ x)], _)            -> (x, l - x)
+>                       (_, Just [(Range y _)])            -> (0, y) 
+>                       (_, _)                       -> (0, l)
+>                       _                            -> error (show (mbPrefixB, mbSubfixB) ) 
+>         rs        = map snd subPatB      
+>         rs'       = map lastNonEmpty rs
+>         io = logger (print $ "\n" ++ show rs ++ " || " ++ show rs' ++ "\n")
+>     in -- io `seq` 
+>        listToArray (mainB:rs')
+>     where fromRange (Range b e) = (b, e-b) 
+>           -- chris' test cases requires us to get the last result even if it is a reset point,
+>           -- e.g. input:"aaa"	 pattern:"((..)|(.))*" expected match:"(0,3)(2,3)(-1,-1)(2,3)" note that (..) matches with [(0,2),(2,2)], we return [(2,2)]
+>           lastNonEmpty [] = (-1,0)
+>           lastNonEmpty rs = fromRange (last rs)
+
+> listToArray l = listArray (0,length l-1) l
+
+> posixPatMatchArray :: (DfaTable, SBinder, SBinder -> [Env], [Int], FollowBy, IM.IntMap ()) -> Word -> Maybe MatchArray
+> posixPatMatchArray compiled w =
+>      first (execPatMatchArray compiled w)
+>   where
+>     first (env:_) = return env
+>     first _ = Nothing
+
+
+> -- | from FollowBy, we recover the right result of the variable that bound (-1,-1) to fit Chris' test case
+> 
+
+> type FollowBy = [(Int,Int)]
+
+> followBy :: Pat -> FollowBy
+> followBy p = map (\p -> (snd p, fst p)) (fst $ buildFollowBy p ([],[]))
+
+> -- | describe the "followedBy" relation between two pattern variable
+> buildFollowBy :: Pat -> ([(Int,Int)], [Int]) -> ([(Int,Int)], [Int])
+> buildFollowBy (PVar x w p) (acc, lefts) = let (acc', lefts') = buildFollowBy p (acc,lefts)
+>                                           in ([ (l,x) | l <- lefts] ++ acc', [x])
+> buildFollowBy (PE r) x                  = x
+> buildFollowBy (PStar p g) (acc, lefts)  = buildFollowBy p (acc,lefts)
+> buildFollowBy (PPair p1 p2) (acc, lefts) = let (acc',lefts') = buildFollowBy p1 (acc,lefts)
+>                                            in buildFollowBy p2 (acc',lefts')
+> buildFollowBy (PChoice ps _) (acc, lefts) = 
+>   foldl (\(acc', lefts') p -> let (acc'', lefts'') = buildFollowBy p (acc',lefts) -- all choice share the same lefts comming from the parent
+>                               in (acc'', lefts' ++ lefts'')) (acc, []) ps
