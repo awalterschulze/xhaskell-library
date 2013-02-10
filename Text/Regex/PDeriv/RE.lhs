@@ -46,7 +46,14 @@
 >     compare (Star r1 _) (Star r2 _) = compare r1 r2
 >     compare Any Any = EQ
 >     compare (Not cs) (Not cs') = compare cs cs'
->     compare r1 r2 = compare (hash r1) (hash r2)
+>     compare r1 r2 = compare (assignInt r1) (assignInt r2)
+>      where assignInt Empty = 0
+>            assignInt (L _) = 1             
+>            assignInt (Choice _ _) = 2
+>            assignInt (Seq _ _) = 3
+>            assignInt (Star _ _) = 4
+>            assignInt Any = 5
+>            assignInt (Not _) = 6
 
 
 > -- | A pretty printing function for regular expression
