@@ -33,11 +33,13 @@ We do not break part the sub-pattern of the original reg, they are always groupe
 > import qualified Data.ByteString.Char8 as S
 > import qualified Data.Map as M
 
+> import Control.Monad
 
 > import Text.Regex.Base(RegexOptions(..),RegexLike(..),MatchArray)
 
 
-> import Text.Regex.PDeriv.RE
+> import Text.Regex.PDeriv.RE 
+> import Text.Regex.PDeriv.Common (IsPhi(..), IsEpsilon(..))
 > import Text.Regex.PDeriv.Pretty (Pretty(..))
 > import Text.Regex.PDeriv.Common (Range(..), Letter, PosEpsilon(..), my_hash, my_lookup, GFlag(..), IsGreedy(..), preBinder, subBinder, mainBinder)
 > import Text.Regex.PDeriv.IntPattern (Pat(..), pdPat, toBinder, Binder(..), strip, listifyBinder, Key(..))
@@ -72,7 +74,9 @@ The shapes of the input/output Pat and SBinder should be identical.
 > dPat0 :: Pat -> Char -> [(Pat, Int -> SBinder -> SBinder)]  -- the lists are always singleton,
 > dPat0 (PVar x w p) l = 
 >    do { (p',f) <- dPat0 p l
->       ; return (PVar x [] p', (\i sb -> 
+>       ; if isPhi (strip p') -- simplification
+>         then mzero
+>         else return (PVar x [] p', (\i sb -> 
 >                              case sb of 
 >                              { SVar (v, r) sb' cf -> SVar (v, updateRange i r) (f i sb') cf
 >                              ; _ -> error ("dPat0 failed with pattern " ++ (show (PVar x w p))  ++ " and binding " ++ (show sb))
@@ -88,13 +92,14 @@ The shapes of the input/output Pat and SBinder should be identical.
 >       ; return (PPair p' (PStar p g), (\i sb -> 
 >                     case sb of { SStar cf -> SPair (f i emp) sb cf} ) ) 
 >       }
-> dPat0 (PPair p1 p2) l = 
->    if (posEpsilon (strip p1))
->    then let pf1 = dPat0 p1 l -- we need to remove the empty pattern (potentially)
+> dPat0 (PPair p1 p2) l 
+>    | (isPhi (strip p1) || isPhi (strip p2)) = mzero -- simplification
+>    | (posEpsilon (strip p1)) =
+>         let pf1 = dPat0 p1 l -- we need to remove the empty pattern (potentially)
 >             pf2 = dPat0 p2 l 
 >         in case (pf1, pf2) of 
 >         { ([], []) -> [] 
->         ; ([], _ ) -> do 
+>         ; ([], _ ) -> simplify $ do 
 >            { (p2', f2) <- pf2 -- we drop the sb1, because it reaches no state
 >            ; let rm = extract p1
 >            ; return (p2', (\i sb -> case sb of 
@@ -102,12 +107,12 @@ The shapes of the input/output Pat and SBinder should be identical.
 >                              let sb1' = rm sb1 
 >                              in carryForward (sb1'++cf) (f2 i sb2) }))
 >            }
->         ; (_ , []) -> do 
+>         ; (_ , []) -> simplify $ do 
 >            { (p1', f1) <- pf1 
 >            ; return ( PPair p1' p2, (\i sb -> case sb of 
 >                           { SPair sb1 sb2 cf -> SPair (f1 i sb1) sb2 cf }))
 >            }
->         ; (_, _) -> do
+>         ; (_, _) -> simplify $ do
 >            { (p1',f1) <- dPat0 p1 l 
 >            ; (p2',f2) <- dPat0 p2 l
 >            ; let rm = extract p1
@@ -119,7 +124,8 @@ The shapes of the input/output Pat and SBinder should be identical.
 >                         } )
 >                     ) }
 >         }
->    else do { (p1',f1) <- dPat0 p1 l
+>    | otherwise =
+>         do { (p1',f1) <- dPat0 p1 l
 >            ; return ( PPair p1' p2 
 >                     , (\i sb -> case sb of 
 >                         { SPair sb1 sb2 cf -> SPair (f1 i sb1) sb2 cf } )
@@ -128,7 +134,7 @@ The shapes of the input/output Pat and SBinder should be identical.
 >    | null ps = []
 >    | length ps == 1 = do -- singleton choice, we eliminate the choice
 >       { p <- ps  
->       ; (p',f) <- dPat0 p l                
+>       ; (p',f) <- dPat0 p l
 >       ; let f' = \i sb -> case sb of { SChoice [sb'] cf -> carryForward cf (f i sb')  }
 >       ; return (p', f')
 >       }  
@@ -148,7 +154,7 @@ The resulting func accept a SChoice pattern (cf to the input list of pattern).
 {}, d |-nub PChoice {}, \i -> id
 
 
-pfs 
+pfs .... todo
 --------------------------------------------
 {[]}\cup pfs , d |-nub PChoice {}, \i -> id
 
@@ -164,7 +170,7 @@ pfs
 >      ; return (PChoice ps g, f')
 >      }                                  
 > nub2Choice ([(p,f)]:pfs) pDict  -- recall the invarance of nub2Choice and dPat0, the return value of f shares the same shape of p
->   | p `M.member` pDict = do 
+>   | isPhi (strip p) || p `M.member` pDict = do  -- simpliciation
 >      { (PChoice ps g, f'') <- nub2Choice pfs pDict
 >      ; let f' i sb = case sb of
 >            { SChoice (s:ss) cf ->
@@ -201,6 +207,20 @@ pfs
 >         }
 >       }
 
+simplification
+
+> simplify :: [(Pat, Int -> SBinder -> SBinder)] -> [(Pat, Int -> SBinder -> SBinder)]
+> simplify [] = []
+> simplify pfs@[(PPair p1 p2, f)] 
+>   | (isPhi (strip p1)) || (isPhi (strip p2)) = [] 
+>   | (isEpsilon (strip p1)) =
+>        let f i sb = case sb of { SPair sb1 sb2 cf -> let rm = extract sb1 in carryForward (rm++cf) sb2 }
+>        in [(p2,f)]
+>   | (isEpsilon (strip p2)) =
+>        let f i sb = case sb of { SPair sb1 sb2 cf -> let rm = extract sb2 in carryForward (rm++cf) sb1 }
+>        in [(p1,f)]
+>   | otherwise = pfs
+> simplify pfs = pfs
 
 
 
@@ -315,7 +335,7 @@ get all envs from the sbinder
 testing 
 
 > testp = 
->    let (Right (pp,posixBnd)) = parsePatPosix "(ab|a)(bc|c)"
+>    let (Right (pp,posixBnd)) = parsePatPosix "X(.?){0,1}Y"
 >    in pp
 
 let sig = sigmaRE (strip testp)

@@ -134,6 +134,7 @@
 > instance IsPhi RE where
 >   isPhi Phi = True
 >   isPhi Empty = False
+>   isPhi (Choice [] _) = True
 >   isPhi (Choice rs g) = all isPhi rs
 >   isPhi (Seq r1 r2) = (isPhi r1) || (isPhi r2)
 >   isPhi (Star r g) = False
