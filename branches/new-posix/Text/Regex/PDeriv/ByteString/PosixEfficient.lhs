@@ -68,19 +68,22 @@ We do not break part the sub-pattern of the original reg, they are always groupe
 > toSBinder (PChoice ps g) = SChoice (map toSBinder ps) []
 
 
+
 The invariance: 
 The shapes of the input/output Pat and SBinder should be identical.
-                   
+
+> {-                   
 > dPat0 :: Pat -> Char -> [(Pat, Int -> SBinder -> SBinder)]  -- the lists are always singleton,
 > dPat0 (PVar x w p) l = 
 >    do { (p',f) <- dPat0 p l
 >       ; if isPhi (strip p') -- simplification
 >         then mzero
->         else return (PVar x [] p', (\i sb -> 
+>         else (return (PVar x [] p', (\i sb -> 
 >                              case sb of 
 >                              { SVar (v, r) sb' cf -> SVar (v, updateRange i r) (f i sb') cf
 >                              ; _ -> error ("dPat0 failed with pattern " ++ (show (PVar x w p))  ++ " and binding " ++ (show sb))
->                              }) ) }
+>                              }) )) 
+>       }
 
 > dPat0 (PE r) l =
 >    let pds = partDeriv r l
@@ -102,14 +105,14 @@ The shapes of the input/output Pat and SBinder should be identical.
 >         ; ([], _ ) -> simplify $ do 
 >            { (p2', f2) <- pf2 -- we drop the sb1, because it reaches no state
 >            ; let rm = extract p1
->            ; return (p2', (\i sb -> case sb of 
+>            ; simp $ return (p2', (\i sb -> case sb of 
 >                           { SPair sb1 sb2 cf -> 
 >                              let sb1' = rm sb1 
 >                              in carryForward (sb1'++cf) (f2 i sb2) }))
 >            }
 >         ; (_ , []) -> simplify $ do 
 >            { (p1', f1) <- pf1 
->            ; return ( PPair p1' p2, (\i sb -> case sb of 
+>            ; simp $ return ( PPair p1' p2, (\i sb -> case sb of 
 >                           { SPair sb1 sb2 cf -> SPair (f1 i sb1) sb2 cf }))
 >            }
 >         ; (_, _) -> simplify $ do
@@ -142,8 +145,103 @@ The shapes of the input/output Pat and SBinder should be identical.
 >    let pfs = map (\p -> dPat0 p l) ps
 >        nubPF :: [[(Pat, Int -> SBinder -> SBinder)]] -> [(Pat, Int -> SBinder -> SBinder)] 
 >        nubPF pfs = nub2Choice pfs M.empty 
->    in nubPF pfs 
+>    in simp $ nubPF pfs 
+> -} 
 
+
+
+> dPat0 :: Pat -> Char -> [(Pat, Int -> SBinder -> SBinder)] -- the result is always singleton or empty
+> dPat0 y@(PVar x w p) l = 
+>    do { (p',f) <- dPat0 p l  
+>       ; let f' i sb = case sb of 
+>                       { SVar (v,r) sb' cf -> SVar (v, updateRange i r) (f i sb') cf 
+>                       ; senv -> error $ "invariance is broken: " ++ show y ++ " vs " ++ show senv 
+>                       }
+>       ; (p'',f'') <- simp (PVar x w p')
+>       ; if (p'' == (PVar x w p')) 
+>         then return (PVar x w p', f')
+>         else return (p'', \i -> (f'' i) . (f' i))
+>       }
+> dPat0 (PE r) l = 
+>    let pds = partDeriv r l
+>    in pds `seq` 
+>       if null pds then mzero
+>       else return (PE (resToRE pds), (\_ -> id) )
+> dPat0 (PStar p g) l = 
+>    do { (p', f) <- dPat0 p l        
+>       ; let emp = toSBinder p                     
+>       ; return (PPair p' (PStar p g), (\i sb -> 
+>                     case sb of { SStar cf -> SPair (f i emp) sb cf} ) ) 
+>       }
+> dPat0 (PPair p1 p2) l 
+>    | (posEpsilon (strip p1)) =
+>       let pf1 = dPat0 p1 l                           
+>           pf2 = dPat0 p2 l
+>       in case (pf1, pf2) of
+>       { ([], []) -> mzero
+>       ; ([], [(p2',f2')]) ->
+>          let rm = extract p1
+>              f i sb = case sb of 
+>                 { SPair sb1 sb2 cf -> 
+>                      let sb1' = rm sb1  
+>                      in carryForward (sb1' ++ cf) (f2' i sb2) }
+>          in do { (p2'',f2'') <- simp p2'
+>                ; if p2'' == p2'
+>                  then return (p2', f)
+>                  else return (p2'', \i -> (f2'' i) . (f i))
+>                }
+>       ; ([(p1',f1')], []) -> -- todo
+>          let f i sb = case sb of 
+>                 { SPair sb1 sb2 cf -> SPair (f1' i sb1) sb2 cf }
+>          in do { (p1'',f1'') <- simp (PPair p1' p2)
+>                ; if (p1'' == (PPair p1' p2))
+>                  then return (PPair p1' p2, f)
+>                  else return (p1'', \i -> (f1'' i) . (f i)) 
+>                }
+>       ; _ -> do 
+>         { (p1',f1) <- dPat0 p1 l
+>         ; (p2',f2) <- dPat0 p2 l
+>         ; let rm = extract p1
+>               f i sb = case sb of
+>                 { SPair sb1 sb2 cf ->
+>                     let sb1' = rm sb1
+>                     in SChoice [ SPair (f1 i sb1) sb2 cf, carryForward (sb1' ++ cf) (f2 i sb2)] [] }
+>         ; (p',f') <- simp (PChoice [PPair p1' p2, p2'] Greedy) 
+>         ; if (p' == (PChoice [PPair p1' p2, p2'] Greedy))
+>           then return (PChoice [PPair p1' p2, p2'] Greedy, f)
+>           else return (p', \i -> (f' i) . (f i))          
+>         }
+>       }
+>    | otherwise =
+>       do { (p1',f1) <- dPat0 p1 l
+>          ; let f i sb = case sb of { SPair sb1 sb2 cf -> SPair (f1 i sb1) sb2 cf } 
+>          ; (p',f') <- simp (PPair p1' p2)
+>          ; if (p' == (PPair p1' p2))
+>            then return (PPair p1' p2, f)
+>            else return (p', \i -> (f' i) . (f i))
+>          }
+> dPat0 (PChoice [] g) l = mzero
+> dPat0 y@(PChoice [p] g) l = do
+>       { (p',f') <- dPat0 p l
+>       ; let f i sb = case sb of { SChoice [sb'] cf -> carryForward cf (f' i sb') 
+>                                 ; senv -> error $ "invariance is broken: " ++ pretty y ++ " vs "  ++ show senv 
+>                                 }
+>       ; (p'',f'') <- simp p'
+>       ; if (p'' == p')
+>         then return (p', f)
+>         else return (p'', \i -> (f'' i) . (f i))                     
+>       }
+> dPat0 (PChoice ps g) l = 
+>    let pfs = map (\p -> dPat0 p l) ps
+>        nubPF :: [[(Pat, Int -> SBinder -> SBinder)]] -> [(Pat, Int -> SBinder -> SBinder)] 
+>        nubPF pfs = nub2Choice pfs M.empty 
+>    in do 
+>    { (p,f) <- nubPF pfs
+>    ; (p',f') <- simp p
+>    ; if (p' == p) 
+>      then return (p, f)
+>      else return (p', \i -> (f' i) . (f i)) 
+>    }
 
 Turns a list of pattern x coercion pairs into a pchoice and a func, duplicate patterns are removed.
 The first arg is a list of list of pair, because of the list monad generated by dPat0, each non-empty sub list is a singleton list.
@@ -213,15 +311,68 @@ simplification
 > simplify [] = []
 > simplify pfs@[(PPair p1 p2, f)] 
 >   | (isPhi (strip p1)) || (isPhi (strip p2)) = [] 
->   | (isEpsilon (strip p1)) =
->        let f i sb = case sb of { SPair sb1 sb2 cf -> let rm = extract sb1 in carryForward (rm++cf) sb2 }
+> {-   | (isEpsilon (strip p1)) =
+>        let rm = extract p1
+>            f i sb = case sb of { SPair sb1 sb2 cf -> let cf' = rm sb1 in carryForward (cf'++cf) sb2 }
 >        in [(p2,f)]
 >   | (isEpsilon (strip p2)) =
->        let f i sb = case sb of { SPair sb1 sb2 cf -> let rm = extract sb2 in carryForward (rm++cf) sb1 }
->        in [(p1,f)]
+>        let rm = extract p2
+>            f i sb = case sb of { SPair sb1 sb2 cf -> let cf' = rm sb2 in carryForward (cf'++cf) sb1 }
+>        in [(p1,f)] -}
 >   | otherwise = pfs
 > simplify pfs = pfs
 
+
+invariance: input / outoput of Int -> SBinder -> SBinder agree with simp's Pat input/ output
+
+> simp :: Pat -> [(Pat, Int -> SBinder -> SBinder)] -- the output list is singleton 
+> simp (PVar x w p) = do
+>   { (p',f') <- simp p
+>   ; case p' of
+>     { _ | p == p' -> return (PVar x w p,\i -> id)
+>         | isPhi (strip p') -> mzero
+>         | otherwise -> let f i sb = case sb of 
+>                                     {SVar vr sb' cf -> SVar vr (f' i sb') cf}
+>                        in return (PVar x w p', f)
+>     }
+>   }
+> simp y@(PPair p1 p2) = do
+>    { (p1',f1') <- simp p1
+>    ; (p2',f2') <- simp p2
+>    ; case (p1',p2') of       
+>      { _ | isPhi p1' || isPhi p2' -> mzero
+>          {- | isEpsilon p1'          -> 
+>              let rm = extract p1
+>                  f i sb = case sb of
+>                     { SPair sb1 sb2 cf -> let cf' = rm sb1 in carryForward (cf' ++ cf) (f2' i sb2) }
+>              in return (p2',f)
+>          | isEpsilon p2'          ->
+>              let rm = extract p2
+>                  f i sb = case sb of 
+>                     { SPair sb1 sb2 cf -> let cf' = rm sb2 in carryForward (cf' ++ cf) (f1' i sb1) }
+>              in return (p1',f) -}
+>          | otherwise              ->
+>              let f i sb = case sb of
+>                     { SPair sb1 sb2 cf -> SPair (f1' i sb1) (f2' i sb2) cf
+>                     ; senv -> error $ "invariance broken: " ++ pretty y ++ " vs " ++ show senv }
+>              in return (PPair p1' p2', f)
+>       }
+>    }
+> simp (PChoice [] g) = mzero
+> simp (PChoice [p] g) = do 
+>    { (p',f') <- simp p
+>    ; if isPhi p' 
+>      then mzero
+>      else 
+>       let f i sb = case sb of { SChoice [sb'] cf -> carryForward cf (f' i sb') }
+>       in return (p',f)
+>    }
+> simp (PChoice ps g) = 
+>    let pfs = map simp ps  
+>        nubPF :: [[(Pat, Int -> SBinder -> SBinder)]] -> [(Pat, Int -> SBinder -> SBinder)] 
+>        nubPF pfs = nub2Choice pfs M.empty
+>    in nubPF pfs
+> simp p = return (p,\i -> id)
 
 
 > carryForward :: [SRange] -> SBinder -> SBinder
@@ -260,6 +411,7 @@ simplification
 > extract (PStar p g) (SStar cf) = cf
 > extract (PPair p1 p2) (SPair sb1 sb2 cf) = (extract p1 sb1) ++ (extract p2 sb2) ++ cf
 > extract (PChoice ps g) (SChoice sbs cf) = (concatMap (\(p,sb) -> extract p sb) (zip ps sbs)) ++ cf
+> extract p sb = error $ "Error: trying to extract" ++ (show sb) ++ " from " ++ (show p)
 
 
 > updateRange :: Int -> [Range] -> [Range]
@@ -309,6 +461,7 @@ get all envs from the sbinder
 >   | otherwise = []
 > sbinderToEnv (PStar _ _) (SStar cf) = [cf]
 > sbinderToEnv (PE _) (SRE cf) = [cf]
+> sbinderToEnv p sb = error $ (pretty p) ++ " and " ++ (show sb)
 
 
 > type DfaTable = IM.IntMap (Int, Int -> SBinder -> SBinder, SBinder -> [Env])
@@ -335,7 +488,7 @@ get all envs from the sbinder
 testing 
 
 > testp = 
->    let (Right (pp,posixBnd)) = parsePatPosix "X(.?){0,1}Y"
+>    let (Right (pp,posixBnd)) = parsePatPosix "X(.?){0,7}Y"
 >    in pp
 
 let sig = sigmaRE (strip testp)
