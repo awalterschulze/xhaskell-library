@@ -341,7 +341,7 @@ invariance: input / outoput of Int -> SBinder -> SBinder agree with simp's Pat i
 >    ; (p2',f2') <- simp p2
 >    ; case (p1',p2') of       
 >      { _ | isPhi p1' || isPhi p2' -> mzero
->          {- | isEpsilon p1'          -> 
+>          | isEpsilon p1'          -> 
 >              let rm = extract p1
 >                  f i sb = case sb of
 >                     { SPair sb1 sb2 cf -> let cf' = rm sb1 in carryForward (cf' ++ cf) (f2' i sb2) }
@@ -350,7 +350,7 @@ invariance: input / outoput of Int -> SBinder -> SBinder agree with simp's Pat i
 >              let rm = extract p2
 >                  f i sb = case sb of 
 >                     { SPair sb1 sb2 cf -> let cf' = rm sb2 in carryForward (cf' ++ cf) (f1' i sb1) }
->              in return (p1',f) -}
+>              in return (p1',f)
 >          | otherwise              ->
 >              let f i sb = case sb of
 >                     { SPair sb1 sb2 cf -> SPair (f1' i sb1) (f2' i sb2) cf
@@ -488,7 +488,7 @@ get all envs from the sbinder
 testing 
 
 > testp = 
->    let (Right (pp,posixBnd)) = parsePatPosix "X(.?){0,7}Y"
+>    let (Right (pp,posixBnd)) = parsePatPosix "X(.?){0,3}Y"
 >    in pp
 
 let sig = sigmaRE (strip testp)
