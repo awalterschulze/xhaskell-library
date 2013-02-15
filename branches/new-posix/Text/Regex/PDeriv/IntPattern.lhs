@@ -4,14 +4,14 @@
 > module Text.Regex.PDeriv.IntPattern 
 >     ( Pat(..)
 >     , strip
->     , pdPat
+>  --   , pdPat
 >     , Binder
 >     , toBinder
 >     , listifyBinder
 >  --  , updateBinderByIndex
->     , pdPat0
->     , pdPat0Sim
->     , nub2
+>  --   , pdPat0
+>  --   , pdPat0Sim
+>  --   , nub2
 >     , Key(..)
 >     )
 >     where
@@ -26,7 +26,7 @@
 
 > -- | regular expression patterns
 > data Pat = PVar Int [Range] Pat       -- ^ variable pattern 
->   | PE RE                             -- ^ pattern without binder
+>   | PE [RE]                           -- ^ pattern without binder
 >   | PPair Pat Pat                     -- ^ pair pattern
 >   | PChoice [Pat] GFlag             -- ^ choice pattern 
 >   | PStar Pat GFlag                   -- ^ star pattern 
@@ -45,7 +45,7 @@
 >   (==) (PChoice ps1 g1) (PChoice ps2 g2) = (g1 == g2) && (ps1 == ps2) -- more efficient, because choices are constructed in left-nested
 >   (==) (PPlus p1 p2) (PPlus p1' p2') = (p1 == p1') && (p2 == p2')
 >   (==) (PStar p1 g1) (PStar p2 g2) =  (g1 == g2) && (p1 == p2)
->   (==) (PE r1) (PE r2) = r1 == r2
+>   (==) (PE rs1) (PE rs2) = rs1 == rs2
 >   (==) _ _ = False
 > 
 
@@ -58,7 +58,7 @@
 >     pretty (PVar x1 _ p1) = "(" ++ show x1 ++ ":" ++ pretty p1 ++ ")"
 >     pretty (PPair p1 p2) = "<" ++ pretty p1 ++ "," ++ pretty p2 ++ ">"
 >     pretty (PChoice ps g) = "(" ++ pretty ps ++ ")" ++ (show g)
->     pretty (PE r) = show r
+>     pretty (PE rs) = "|" ++ show rs ++ "|"
 >     pretty (PPlus p1 p2 ) = "(" ++ pretty p1 ++ "," ++ pretty p2 ++ ")"
 >     pretty (PStar p g) = (pretty p) ++ "*" ++ (show g)
 >     pretty (PEmpty p) = "[" ++ pretty p ++ "]"
@@ -99,7 +99,7 @@
 > -- | function 'strip' strips away the bindings from a pattern
 > strip :: Pat -> RE 
 > strip (PVar _ w p) = strip p
-> strip (PE r) = r
+> strip (PE rs) = resToRE rs
 > strip (PStar p g) = Star (strip p) g
 > strip (PPair p1 p2) = Seq (strip p1) (strip p2)
 > strip (PPlus p1 p2) = Seq (strip p1) (strip p2)
@@ -110,10 +110,10 @@
 > -- | function 'mkEmpPat' makes an empty pattern
 > mkEmpPat :: Pat -> Pat
 > mkEmpPat (PVar x w p) = PVar x w (mkEmpPat p)
-> mkEmpPat (PE r) 
->   | posEpsilon r = PE Empty
->   | otherwise = PE Phi
-> mkEmpPat (PStar p g) = PE Empty -- problematic?! we are losing binding (x,()) from  ( x : a*) ~> PE <>
+> mkEmpPat (PE rs) 
+>   | any posEpsilon rs = PE [Empty]
+>   | otherwise = PE [Phi]
+> mkEmpPat (PStar p g) = PE [Empty] -- problematic?! we are losing binding (x,()) from  ( x : a*) ~> PE <>
 > mkEmpPat (PPlus p1 p2) = mkEmpPat p1 -- since p2 must be pstar we drop it. If we mkEmpPat p2, we need to deal with pdPat (PPlus (x :<>) (PE <>)) l
 > mkEmpPat (PPair p1 p2) = PPair (mkEmpPat p1) (mkEmpPat p2)
 > mkEmpPat (PChoice ps g) = PChoice (map mkEmpPat ps) g
@@ -134,6 +134,7 @@
 >    For pdPat0 approach, we do not need to do this explicitly, we simply drop 
 >    (mkE p') even in the PPair case. see the definitely of pdPat0 below
 > -}
+> {-
 > pdPat :: Pat -> Letter -> [Pat]
 > pdPat (PVar x w p) (l,idx) = 
 >          let pds = pdPat p (l,idx)
@@ -179,7 +180,7 @@
 > pdPat (PChoice ps g) l = 
 >    nub (concatMap (\p -> pdPat p l) ps) -- nub doesn't seem to be essential
 > pdPat p l = error ((show p) ++ (show l))
-
+> -}
 > -- | function 'getBindingsFrom' transfer bindings from p2 to p1
 > getBindingsFrom :: Pat  -- ^ the source of the  
 >                    -> Pat -> Pat
@@ -202,7 +203,7 @@
 > -- | Function 'isGreedy' checks whether a pattern is greedy
 > instance IsGreedy Pat where
 >     isGreedy (PVar _ _ p) = isGreedy p
->     isGreedy (PE r) = isGreedy r
+>     isGreedy (PE rs) = any isGreedy rs
 >     isGreedy (PPair p1 p2) = isGreedy p1 || isGreedy p2
 >     isGreedy (PChoice ps Greedy) = True
 >     isGreedy (PChoice ps NotGreedy) = False -- isGreedy p1 || isGreedy p2
@@ -223,7 +224,7 @@
 > hasBinder  (PPair p1 p2) = (hasBinder p1) || (hasBinder p2)
 > hasBinder  (PPlus p1 p2) = hasBinder p1 
 > hasBinder  (PStar p1 g)  = hasBinder p1 
-> hasBinder  (PE r)        = False
+> hasBinder  (PE rs)        = False
 > hasBinder  (PChoice ps g) = any hasBinder ps 
 > hasBinder  (PEmpty p) = hasBinder p
                                                       
@@ -237,7 +238,7 @@
 > toBinderList  (PPair p1 p2) = (toBinderList p1) ++ (toBinderList p2)
 > toBinderList  (PPlus p1 p2) = (toBinderList p1) 
 > toBinderList  (PStar p1 g)    = (toBinderList p1) 
-> toBinderList  (PE r)        = []
+> toBinderList  (PE rs)        = []
 > toBinderList  (PChoice ps g) = concatMap toBinderList ps 
 > toBinderList  (PEmpty p) = toBinderList p
 
@@ -303,7 +304,7 @@
 >     | otherwise = -- idx `seq` pos `seq` xs `seq`  
 >                   x:(updateBinderByIndexSub idx pos xs)
 > -} 
-
+> {-
 > {-| Function 'pdPat0' is the 'abstracted' form of the 'pdPat' function
 >     It computes a set of pairs. Each pair consists a 'shape' of the partial derivative, and
 >     an update function which defines the change of the pattern bindings from the 'source' pattern to 
@@ -359,7 +360,7 @@
 >      let pfs = pdPat0 p l
 >          pfs' = pfs `seq` map (\(p,f) -> (simplify p, f)) pfs
 >      in nub2 pfs'
-
+> -}
 
 
 > -- | mainly interested in simplifying epsilon, p --> p
@@ -380,12 +381,12 @@
 >         in  PChoice ps' g
 >     simplify (PStar p g) = PStar (simplify p) g
 >     simplify (PPlus p1 p2) = PPlus (simplify p1) (simplify p2)
->     simplify (PE r) = PE (simplify r)
+>     simplify (PE r) = PE (map simplify r)
 
 
 > instance IsEpsilon Pat where
 >    isEpsilon (PVar _ _ p) = isEpsilon p
->    isEpsilon (PE r) = isEpsilon r                                                        
+>    isEpsilon (PE rs) = all isEpsilon rs                                                        
 >    isEpsilon (PPair p1 p2) =  (isEpsilon p1) && (isEpsilon p2)
 >    isEpsilon (PChoice ps _) =  all isEpsilon ps
 >    isEpsilon (PStar p _) = isEpsilon p
@@ -395,7 +396,7 @@
 
 > instance IsPhi Pat where
 >    isPhi (PVar _ _ p) = isPhi p
->    isPhi (PE r) = isPhi r                                                        
+>    isPhi (PE rs) = all isPhi rs                                                        
 >    isPhi (PPair p1 p2) =  (isPhi p1) || (isPhi p2)
 >    isPhi (PChoice ps _) =  all isPhi ps
 >    isPhi (PStar p _) = False

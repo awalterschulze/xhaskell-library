@@ -25,7 +25,7 @@ library
                          -- Text.Regex.PDeriv.ByteString.TwoPasses
                          -- Text.Regex.PDeriv.ByteString.RightToLeft
                          -- Text.Regex.PDeriv.ByteString.LeftToRight
-                         Text.Regex.PDeriv.ByteString.LeftToRightD
+                         -- Text.Regex.PDeriv.ByteString.LeftToRightD
                          -- Text.Regex.PDeriv.ByteString.Posix
                          Text.Regex.PDeriv.ByteString.PosixEfficient
                          -- Text.Regex.PDeriv.String
