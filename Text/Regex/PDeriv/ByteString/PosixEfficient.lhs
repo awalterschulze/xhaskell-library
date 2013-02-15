@@ -42,7 +42,7 @@ We do not break part the sub-pattern of the original reg, they are always groupe
 > import Text.Regex.PDeriv.Common (IsPhi(..), IsEpsilon(..))
 > import Text.Regex.PDeriv.Pretty (Pretty(..))
 > import Text.Regex.PDeriv.Common (Range(..), Letter, PosEpsilon(..), my_hash, my_lookup, GFlag(..), IsGreedy(..), preBinder, subBinder, mainBinder)
-> import Text.Regex.PDeriv.IntPattern (Pat(..), pdPat, toBinder, Binder(..), strip, listifyBinder, Key(..))
+> import Text.Regex.PDeriv.IntPattern (Pat(..), toBinder, Binder(..), strip, listifyBinder, Key(..))
 > import Text.Regex.PDeriv.Parse
 > import qualified Text.Regex.PDeriv.Dictionary as D (Dictionary(..), Key(..), insertNotOverwrite, lookupAll, empty, isIn, nub)
 
@@ -62,7 +62,7 @@ We do not break part the sub-pattern of the original reg, they are always groupe
 
 > toSBinder :: Pat -> SBinder
 > toSBinder (PVar x w p) = SVar (x,[]) (toSBinder p) []
-> toSBinder (PE r) = SRE []
+> toSBinder (PE rs) = SRE []
 > toSBinder (PStar p g) = SStar []
 > toSBinder (PPair p1 p2) = SPair (toSBinder p1) (toSBinder p2) []
 > toSBinder (PChoice ps g) = SChoice (map toSBinder ps) []
@@ -157,16 +157,16 @@ The shapes of the input/output Pat and SBinder should be identical.
 >                       { SVar (v,r) sb' cf -> SVar (v, updateRange i r) (f i sb') cf 
 >                       ; senv -> error $ "invariance is broken: " ++ show y ++ " vs " ++ show senv 
 >                       }
->       ; (p'',f'') <- simp (PVar x w p')
+>       ; (p'',f'') <- simpFix (PVar x w p')
 >       ; if (p'' == (PVar x w p')) 
 >         then return (PVar x w p', f')
 >         else return (p'', \i -> (f'' i) . (f' i))
 >       }
-> dPat0 (PE r) l = 
->    let pds = partDeriv r l
+> dPat0 (PE rs) l = 
+>    let pds = nub (concatMap (\r -> partDeriv r l) rs)
 >    in pds `seq` 
 >       if null pds then mzero
->       else return (PE (resToRE pds), (\_ -> id) )
+>       else return (PE pds, (\_ -> id) )
 > dPat0 (PStar p g) l = 
 >    do { (p', f) <- dPat0 p l        
 >       ; let emp = toSBinder p                     
@@ -185,7 +185,7 @@ The shapes of the input/output Pat and SBinder should be identical.
 >                 { SPair sb1 sb2 cf -> 
 >                      let sb1' = rm sb1  
 >                      in carryForward (sb1' ++ cf) (f2' i sb2) }
->          in do { (p2'',f2'') <- simp p2'
+>          in do { (p2'',f2'') <- simpFix p2'
 >                ; if p2'' == p2'
 >                  then return (p2', f)
 >                  else return (p2'', \i -> (f2'' i) . (f i))
@@ -193,12 +193,12 @@ The shapes of the input/output Pat and SBinder should be identical.
 >       ; ([(p1',f1')], []) -> -- todo
 >          let f i sb = case sb of 
 >                 { SPair sb1 sb2 cf -> SPair (f1' i sb1) sb2 cf }
->          in do { (p1'',f1'') <- simp (PPair p1' p2)
+>          in do { (p1'',f1'') <- simpFix (PPair p1' p2)
 >                ; if (p1'' == (PPair p1' p2))
 >                  then return (PPair p1' p2, f)
 >                  else return (p1'', \i -> (f1'' i) . (f i)) 
 >                }
->       ; _ -> do 
+>       ; _ | True -> do -- isGreedy p1 -> do 
 >         { (p1',f1) <- dPat0 p1 l
 >         ; (p2',f2) <- dPat0 p2 l
 >         ; let rm = extract p1
@@ -206,16 +206,29 @@ The shapes of the input/output Pat and SBinder should be identical.
 >                 { SPair sb1 sb2 cf ->
 >                     let sb1' = rm sb1
 >                     in SChoice [ SPair (f1 i sb1) sb2 cf, carryForward (sb1' ++ cf) (f2 i sb2)] [] }
->         ; (p',f') <- simp (PChoice [PPair p1' p2, p2'] Greedy) 
+>         ; (p',f') <- simpFix (PChoice [PPair p1' p2, p2'] Greedy) 
 >         ; if (p' == (PChoice [PPair p1' p2, p2'] Greedy))
 >           then return (PChoice [PPair p1' p2, p2'] Greedy, f)
+>           else return (p', \i -> (f' i) . (f i))          
+>         }
+>           | otherwise -> do 
+>         { (p1',f1) <- dPat0 p1 l
+>         ; (p2',f2) <- dPat0 p2 l
+>         ; let rm = extract p1
+>               f i sb = case sb of
+>                 { SPair sb1 sb2 cf ->
+>                     let sb1' = rm sb1
+>                     in SChoice [carryForward (sb1' ++ cf) (f2 i sb2),  SPair (f1 i sb1) sb2 cf ] [] }
+>         ; (p',f') <- simpFix (PChoice [p2' , PPair p1' p2] Greedy) 
+>         ; if (p' == (PChoice [p2' , PPair p1' p2] Greedy))
+>           then return (PChoice [p2' , PPair p1' p2] Greedy, f)
 >           else return (p', \i -> (f' i) . (f i))          
 >         }
 >       }
 >    | otherwise =
 >       do { (p1',f1) <- dPat0 p1 l
 >          ; let f i sb = case sb of { SPair sb1 sb2 cf -> SPair (f1 i sb1) sb2 cf } 
->          ; (p',f') <- simp (PPair p1' p2)
+>          ; (p',f') <- simpFix (PPair p1' p2)
 >          ; if (p' == (PPair p1' p2))
 >            then return (PPair p1' p2, f)
 >            else return (p', \i -> (f' i) . (f i))
@@ -226,7 +239,7 @@ The shapes of the input/output Pat and SBinder should be identical.
 >       ; let f i sb = case sb of { SChoice [sb'] cf -> carryForward cf (f' i sb') 
 >                                 ; senv -> error $ "invariance is broken: " ++ pretty y ++ " vs "  ++ show senv 
 >                                 }
->       ; (p'',f'') <- simp p'
+>       ; (p'',f'') <- simpFix p'
 >       ; if (p'' == p')
 >         then return (p', f)
 >         else return (p'', \i -> (f'' i) . (f i))                     
@@ -237,7 +250,7 @@ The shapes of the input/output Pat and SBinder should be identical.
 >        nubPF pfs = nub2Choice pfs M.empty 
 >    in do 
 >    { (p,f) <- nubPF pfs
->    ; (p',f') <- simp p
+>    ; (p',f') <- simpFix p
 >    ; if (p' == p) 
 >      then return (p, f)
 >      else return (p', \i -> (f' i) . (f i)) 
@@ -307,6 +320,7 @@ pfs .... todo
 
 simplification
 
+> {-
 > simplify :: [(Pat, Int -> SBinder -> SBinder)] -> [(Pat, Int -> SBinder -> SBinder)]
 > simplify [] = []
 > simplify pfs@[(PPair p1 p2, f)] 
@@ -321,6 +335,19 @@ simplification
 >        in [(p1,f)] -}
 >   | otherwise = pfs
 > simplify pfs = pfs
+> -}
+
+> simpFix :: Pat -> [(Pat, Int -> SBinder -> SBinder)]
+> simpFix p =  simp p -- simpFix' p (\i -> id)
+
+> simpFix' p f = 
+>   case simp p of
+>   { [] -> []  
+>   ; [(p',f')] ->
+>      if p' == p
+>      then [(p,f)]
+>      else simpFix' p' (\i -> (f' i) . (f i))
+>   }
 
 
 invariance: input / outoput of Int -> SBinder -> SBinder agree with simp's Pat input/ output
@@ -407,7 +434,7 @@ invariance: input / outoput of Int -> SBinder -> SBinder agree with simp's Pat i
 > extract (PVar x w p) (SVar (_,b) sb cf)
 >      | posEpsilon (strip p) = (x,b):(extract p sb) ++ cf
 >      | otherwise = [] -- cf?
-> extract (PE r) (SRE cf) = cf
+> extract (PE rs) (SRE cf) = cf
 > extract (PStar p g) (SStar cf) = cf
 > extract (PPair p1 p2) (SPair sb1 sb2 cf) = (extract p1 sb1) ++ (extract p2 sb2) ++ cf
 > extract (PChoice ps g) (SChoice sbs cf) = (concatMap (\(p,sb) -> extract p sb) (zip ps sbs)) ++ cf
@@ -488,12 +515,13 @@ get all envs from the sbinder
 testing 
 
 > testp = 
->    let (Right (pp,posixBnd)) = parsePatPosix "X(.?){0,3}Y"
+>    let (Right (pp,posixBnd)) = parsePatPosix "X(.?){0,5}Y"
 >    in pp
 
 let sig = sigmaRE (strip testp)
 let init_dict = M.insert testp (0::Int) M.empty
 let (allStates, delta, mapping) = builder sig [] [] init_dict (0::Int) [testp]
+mapM_ (\p -> putStrLn (show p)) (sort allStates)
 
 > {-
 > f p = 
@@ -559,18 +587,18 @@ x0 :: (x1 :: ( x2 :: (ab|a), x3 :: (baa|a)), x4 :: (ac|c))
 
 
 > p4 = PVar 0 [] (PPair (PVar 1 [] ((PPair p_x p_y))) p_z)
->    where p_x = PVar 2 [] (PE (Choice [(L 'A'),(Seq (L 'A') (L 'B'))] Greedy))      
->          p_y = PVar 3 [] (PE (Choice [(Seq (L 'B') (Seq (L 'A') (L 'A'))), (L 'A')] Greedy))
->          p_z = PVar 4 [] (PE (Choice [(Seq (L 'A') (L 'C')), (L 'C')] Greedy))
+>    where p_x = PVar 2 [] (PE [(Choice [(L 'A'),(Seq (L 'A') (L 'B'))] Greedy)])      
+>          p_y = PVar 3 [] (PE [(Choice [(Seq (L 'B') (Seq (L 'A') (L 'A'))), (L 'A')] Greedy)])
+>          p_z = PVar 4 [] (PE [(Choice [(Seq (L 'A') (L 'C')), (L 'C')] Greedy)])
 
 
 x0 :: ( x1 :: (  x2 :: (x3:: a | x4 :: ab) | x5 :: b)* )
 
 
 > p3 = PVar 0 [] (PStar ( PVar 1 [] ( PChoice [(PVar 2 [] (PChoice [p3,p4] Greedy)), p5] Greedy)) Greedy)
->    where p3 = PVar 3 [] (PE (L 'A'))
->          p4 = PVar 4 [] (PE (Seq (L 'A') (L 'B')))           
->          p5 = PVar 5 [] (PE (L 'B'))
+>    where p3 = PVar 3 [] (PE [(L 'A')])
+>          p4 = PVar 4 [] (PE [(Seq (L 'A') (L 'B'))])           
+>          p5 = PVar 5 [] (PE [(L 'B')])
 
 
 > -- | The PDeriv backend spepcific 'Regex' type

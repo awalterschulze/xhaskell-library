@@ -100,11 +100,11 @@ getters and putters
 >                        hasAnchorE = anchorEnd state
 >                    in case (hasAnchorS, hasAnchorE) of
 >                       (True, True)   -> PVar mainBinder [] pat 
->                       (True, False)  -> PPair (PVar mainBinder [] pat) (PVar subBinder [] (PE (Star Any NotGreedy)))
->                       (False, True)  -> PPair (PVar preBinder [] (PE (Star Any NotGreedy))) (PVar mainBinder [] pat)
+>                       (True, False)  -> PPair (PVar mainBinder [] pat) (PVar subBinder [] (PE [(Star Any NotGreedy)]))
+>                       (False, True)  -> PPair (PVar preBinder [] (PE [(Star Any NotGreedy)])) (PVar mainBinder [] pat)
 >                       -- (False, False) -> PPair (PPair (PVar preBinder [] (PE (Star Any NotGreedy))) (PVar mainBinder [] pat)) (PVar subBinder [] (PE (Star Any NotGreedy)))
 >                       -- (False, False) -> PPair (PVar preBinder_ [] (PPair (PVar preBinder [] (PE (Star Any NotGreedy))) (PVar mainBinder [] pat))) (PVar subBinder [] (PE (Star Any NotGreedy)))
->                       (False, False) -> (PPair (PVar preBinder [] (PE (Star Any NotGreedy))) (PVar preBinder_ [] (PPair (PVar mainBinder [] pat) (PVar subBinder [] (PE (Star Any NotGreedy))))))
+>                       (False, False) -> (PPair (PVar preBinder [] (PE [(Star Any NotGreedy)])) (PVar preBinder_ [] (PPair (PVar mainBinder [] pat) (PVar subBinder [] (PE [(Star Any NotGreedy)])))))
 
 
 > -- |  for posix 
@@ -116,11 +116,11 @@ getters and putters
 >                        posixBnd   = posix_binder state
 >                    in case (hasAnchorS, hasAnchorE) of
 >                       (True, True)   -> (PVar mainBinder [] pat, posixBnd)
->                       (True, False)  -> (PPair (PVar mainBinder [] pat) (PVar subBinder [] (PE (Star Any NotGreedy))), posixBnd)
->                       (False, True)  -> (PPair (PVar preBinder [] (PE (Star Any NotGreedy))) (PVar mainBinder [] pat), posixBnd)
+>                       (True, False)  -> (PPair (PVar mainBinder [] pat) (PVar subBinder [] (PE [(Star Any NotGreedy)])), posixBnd)
+>                       (False, True)  -> (PPair (PVar preBinder [] (PE [(Star Any NotGreedy)])) (PVar mainBinder [] pat), posixBnd)
 >                       -- (False, False) -> PPair (PPair (PVar preBinder [] (PE (Star Any NotGreedy))) (PVar mainBinder [] pat)) (PVar subBinder [] (PE (Star Any NotGreedy)))
 >                       -- (False, False) -> PPair (PVar preBinder_ [] (PPair (PVar preBinder [] (PE (Star Any NotGreedy))) (PVar mainBinder [] pat))) (PVar subBinder [] (PE (Star Any NotGreedy)))
->                       (False, False) -> ((PPair (PVar preBinder [] (PE (Star Any NotGreedy))) (PVar preBinder_ [] (PPair (PVar mainBinder [] pat) (PVar subBinder [] (PE (Star Any NotGreedy)))))), posixBnd)
+>                       (False, False) -> ((PPair (PVar preBinder [] (PE [(Star Any NotGreedy)])) (PVar preBinder_ [] (PPair (PVar mainBinder [] pat) (PVar subBinder [] (PE [(Star Any NotGreedy)]))))), posixBnd)
 
 
 
@@ -156,7 +156,7 @@ getters and putters
 >      | hasGroup epat = p_trans epat
 >      | otherwise     = do 
 >                 { r <- r_trans epat
->                 ; return (PE r)
+>                 ; return (PE [r])
 >                 }
 
 > {-
@@ -191,7 +191,7 @@ getters and putters
 >     case epat of
 >       -- () ~>_p ()
 >     { EEmpty ->
->       do { return ( PE Empty )
+>       do { return ( PE [Empty] )
 >          }
 >       {-
 >         e ~> p
@@ -247,7 +247,7 @@ getters and putters
 >       do { p <- trans e
 >          ; let g | b = Greedy
 >                  | otherwise = NotGreedy
->          ; return (PChoice [p,PE Empty] g)
+>          ; return (PChoice [p,PE [Empty]] g)
 >          }
 >     ; EPlus e b ->
 >       {- 
@@ -299,7 +299,7 @@ getters and putters
 >                       (Empty, _    ) -> r2
 >                       (_    , Empty) -> r1
 >                       (_    , _    ) -> Seq r1 r2
->                p = PVar i [] (PE r3)
+>                p = PVar i [] (PE [r3])
 >          ; return p
 >          }
 >     ; EBound e low Nothing b ->
@@ -320,7 +320,7 @@ getters and putters
 >                     ; (r':rs') -> foldl (\ rs r -> Seq rs r) r' rs'
 >                     }
 >                r2 = Seq r1 (Star r g)
->                p = PVar i [] (PE r2)
+>                p = PVar i [] (PE [r2])
 >          ; return p
 >          }
 >     ; ECarat -> 
@@ -331,13 +331,13 @@ getters and putters
 >          ; if f 
 >            then do { i <- getIncNGI -- not the first carat
 >                    ; let r = L '^'
->                          p = PVar i [] (PE r)
+>                          p = PVar i [] (PE [r])
 >                    ; return p
 >                    }
 >            else do { setAnchorStart -- the first carat
 >                    ; i <- getIncNGI
 >                    ; let r = Empty
->                          p = PVar i [] (PE r)
+>                          p = PVar i [] (PE [r])
 >                    ; return p
 >                    }
 >          }
@@ -350,7 +350,7 @@ getters and putters
 >            else setAnchorEnd
 >          ; i <- getIncNGI
 >          ; let r = Empty
->                p = PVar i [] (PE r)
+>                p = PVar i [] (PE [r])
 >          ; return p
 >          }
 >     ; EDot -> 
@@ -358,7 +358,7 @@ getters and putters
 >         -- we might not need this rule
 >       do { i <- getIncNGI
 >          ; let r = Any
->                p = PVar i [] (PE r)
+>                p = PVar i [] (PE [r])
 >          ; return p
 >         }
 >     ; EAny cs ->
@@ -367,7 +367,7 @@ getters and putters
 >       do { i <- getIncNGI
 >          ; let r = char_list_to_re cs
 >                -- r = Any
->                p = PVar i [] (PE r)
+>                p = PVar i [] (PE [r])
 >          ; return p
 >          }
 >     ; ENoneOf cs ->
@@ -376,21 +376,21 @@ getters and putters
 >       do { i <- getIncNGI
 >          ; let -- r = char_list_to_re (filter (\c -> not (c `elem` cs )) sigma)
 >                r = Not cs
->                p = PVar i [] (PE r)
+>                p = PVar i [] (PE [r])
 >          ; return p
 >          }
 >     ; EEscape c ->
 >         -- \\c ~> a :: L c 
 >         -- we might not need this rule
 >       do { i <- getIncNGI 
->          ; let p = PVar i [] (PE (L c))
+>          ; let p = PVar i [] (PE [L c])
 >          ; return p 
 >          }
 >     ; EChar c ->
 >         -- c ~> a :: L c
 >         -- we might not need this rule
 >       do { i <- getIncNGI
->          ; let p = PVar i [] (PE (L c))
+>          ; let p = PVar i [] (PE [L c])
 >          ; return p
 >          }
 >     }

@@ -145,7 +145,7 @@
 > -- | function 'partDeriv' implements the partial derivative operations for regular expressions. We don't pay attention to the greediness flag here.
 > partDeriv :: RE -> Char -> [RE]
 > partDeriv r l = let pds = (partDerivSub r l)
->                 in {-# SCC "nub_pd" #-} nub pds                                                  
+>                 in {-# SCC "nub_pd" #-} nub (map simplify pds)                                                 
 
 
 > partDerivSub Phi l = []
