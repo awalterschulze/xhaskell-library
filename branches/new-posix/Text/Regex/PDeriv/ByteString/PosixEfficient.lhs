@@ -198,7 +198,7 @@ The shapes of the input/output Pat and SBinder should be identical.
 >                  then return (PPair p1' p2, f)
 >                  else return (p1'', \i -> (f1'' i) . (f i)) 
 >                }
->       ; _ | True -> do -- isGreedy p1 -> do 
+>       ; _ | {- True -> do -} isGreedy p1 -> do 
 >         { (p1',f1) <- dPat0 p1 l
 >         ; (p2',f2) <- dPat0 p2 l
 >         ; let rm = extract p1
@@ -470,25 +470,50 @@ invariance: input / outoput of Int -> SBinder -> SBinder agree with simp's Pat i
 > posixMatch p w = case match p w of
 >   { (e:_) -> Just e ; _ -> Nothing }
 
+
+> match2 :: (Pat,FollowBy,IM.IntMap()) -> [Char] -> [MatchArray]
+> match2 (p,fb,posixBinder) w = 
+>   map (\env -> sbinderToMatchArray (length w) fb posixBinder (IM.fromList env)) (match p w)
+
+
 get all envs from the sbinder
 
 > sbinderToEnv :: Pat -> SBinder -> [Env]
-> sbinderToEnv _ (SChoice [] _) = []
-> sbinderToEnv (PChoice (p:ps) g) (SChoice (sb:sbs) cf) 
+> sbinderToEnv p sb = 
+>   let envs = sbinderToEnv' p sb
+>   in map sortEnvByVar envs
+
+> sbinderToEnv' :: Pat -> SBinder -> [Env]
+> sbinderToEnv' _ (SChoice [] _) = []
+> sbinderToEnv' (PChoice (p:ps) g) (SChoice (sb:sbs) cf) 
 >   | posEpsilon (strip p) = 
->   do { env <- sbinderToEnv p sb
+>   do { env <- sbinderToEnv' p sb
 >      ; return (env ++ cf) }
->   | otherwise = sbinderToEnv (PChoice ps g) (SChoice sbs cf)
-> sbinderToEnv (PPair p1 p2) (SPair sb1 sb2 cf) = do { e1 <- sbinderToEnv p1 sb1 
->                                                    ; e2 <- sbinderToEnv p2 sb2
->                                                    ; return (e1 ++ e2) }
-> sbinderToEnv (PVar x _ p) (SVar sr sb cf) 
->   | posEpsilon (strip p) = do { env <- sbinderToEnv p sb
+>   | otherwise = sbinderToEnv' (PChoice ps g) (SChoice sbs cf)
+> sbinderToEnv' (PPair p1 p2) (SPair sb1 sb2 cf) =
+>   do { e1 <- sbinderToEnv' p1 sb1 
+>      ; e2 <- sbinderToEnv' p2 sb2
+>      ; return (e1 ++ e2) }
+> sbinderToEnv' (PVar x _ p) (SVar sr sb cf) 
+>   | posEpsilon (strip p) = do { env <- sbinderToEnv' p sb
 >                       ; return ((sr:env) ++ cf) }
 >   | otherwise = []
-> sbinderToEnv (PStar _ _) (SStar cf) = [cf]
-> sbinderToEnv (PE _) (SRE cf) = [cf]
-> sbinderToEnv p sb = error $ (pretty p) ++ " and " ++ (show sb)
+> sbinderToEnv' (PStar _ _) (SStar cf) = [cf]
+> sbinderToEnv' (PE _) (SRE cf) = [cf]
+> sbinderToEnv' p sb = error $ (pretty p) ++ " and " ++ (show sb)
+
+
+> sortEnvByVar :: Env -> Env 
+> sortEnvByVar env = let im = sortEnvByVar' env IM.empty 
+>                    in map (\(i,rs) -> (i, nub (sort rs) )) (IM.toList im)
+
+> sortEnvByVar' :: Env -> IM.IntMap [Range] -> IM.IntMap [Range]
+> sortEnvByVar' [] im = im
+> sortEnvByVar' ((i,rs):srgs) im = 
+>    case IM.lookup i im of 
+>     { Just _ -> let im' = IM.update (\rs' -> Just $ rs ++ rs') i im
+>                 in sortEnvByVar' srgs im' 
+>     ; Nothing -> sortEnvByVar' srgs (IM.insert i rs im) }  
 
 
 > type DfaTable = IM.IntMap (Int, Int -> SBinder -> SBinder, SBinder -> [Env])
@@ -515,8 +540,15 @@ get all envs from the sbinder
 testing 
 
 > testp = 
->    let (Right (pp,posixBnd)) = parsePatPosix "X(.?){0,5}Y"
+>    let (Right (pp,posixBnd)) = parsePatPosix "(..)*(...)*" -- "X(.?){0,5}Y"
 >    in pp
+
+
+> testp2 = 
+>    let (Right (pp,posixBnd)) = parsePatPosix "(..)*(...)*" -- "X(.?){0,5}Y"
+>        fb                    = followBy pp
+>    in (pp,fb,posixBnd)
+
 
 let sig = sigmaRE (strip testp)
 let init_dict = M.insert testp (0::Int) M.empty
@@ -577,13 +609,15 @@ mapM_ (\p -> putStrLn (show p)) (sort allStates)
 x0 :: (x1 :: ( x2 :: (ab|a), x3 :: (baa|a)), x4 :: (ac|c))
 
 > execPatMatch :: (DfaTable, SBinder, SBinder -> [Env], [Int], FollowBy, IM.IntMap ()) -> Word -> Maybe Env
-> execPatMatch (dt, init_sbinder, init_sb2env, finals, _, _) w = 
+> execPatMatch (dt, init_sbinder, init_sb2env, finals, _, posixBinder) w = 
 >   let r = execDfa 0 dt w [(0, init_sbinder, init_sb2env)]
 >   in case r of 
 >    { [] -> Nothing 
 >    ; ((i,sb,sb2env):_) -> case (sb2env sb) of -- todo: check i `elem` finals?
 >                           { [] -> Nothing 
->                           ; (e:_) -> Just e } }
+>                           ; (e:_) -> let e' = filter (\(x,_) -> x  `IM.notMember` posixBinder) e 
+>                                      in Just e'
+>                           } }
 
 
 > p4 = PVar 0 [] (PPair (PVar 1 [] ((PPair p_x p_y))) p_z)
@@ -652,7 +686,7 @@ x0 :: ( x1 :: (  x2 :: (x3:: a | x4 :: ab) | x5 :: b)* )
 >             Right (Just (pre,main,post,matched))
 
 > rg_collect :: S.ByteString -> Range -> S.ByteString
-> rg_collect w (Range i j) = S.take (j' - i') (S.drop i' w)
+> rg_collect w (Range i j) = S.take (j' - i' + 1) (S.drop i' w)
 >	       where i' = fromIntegral i
 >	             j' = fromIntegral j
 
@@ -763,7 +797,7 @@ x0 :: ( x1 :: (  x2 :: (x3:: a | x4 :: ab) | x5 :: b)* )
 >         io = logger (print $ "\n" ++ show rs ++ " || " ++ show rs' ++ "\n")
 >     in -- io `seq` 
 >        listToArray (mainB:rs')
->     where fromRange (Range b e) = (b, e-b) 
+>     where fromRange (Range b e) = (b, e-b+1) 
 >           -- chris' test cases requires us to get the last result even if it is a reset point,
 >           -- e.g. input:"aaa"	 pattern:"((..)|(.))*" expected match:"(0,3)(2,3)(-1,-1)(2,3)" note that (..) matches with [(0,2),(2,2)], we return [(2,2)]
 >           lastNonEmpty [] = (-1,0)
