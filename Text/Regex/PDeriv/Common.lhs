@@ -26,7 +26,7 @@
 
 > -- | (sub)words represent by range
 > -- type Range  = (Int,Int)      
-> data Range = Range !Int !Int deriving Show
+> data Range = Range !Int !Int deriving (Show, Ord)
 
 > instance Eq Range where
 >   (==) (Range x y) (Range w z) = (x == w) && (y == z)
