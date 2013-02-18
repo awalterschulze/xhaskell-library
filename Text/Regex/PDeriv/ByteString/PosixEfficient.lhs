@@ -52,101 +52,50 @@ We do not break part the sub-pattern of the original reg, they are always groupe
 
 > type SRange = (Int,[Range])
 
+> type CarryForward = IM.IntMap [Range] -- we only keep the first choice (i.e. the posix)  hence it is always mapping one variable to one env
+> emptyCF = IM.empty
 
-> data SBinder = SChoice [SBinder] [SRange]                
->           | SPair SBinder SBinder [SRange]               
->           | SVar SRange SBinder [SRange] --  [SBinder] is carrying the carry-forward env due to the simplification
->           | SStar [SRange] -- no need to store anything
->           | SRE [SRange]
+> combineCF :: CarryForward -> CarryForward -> CarryForward
+> combineCF cf1 cf2 = IM.unionWith combineRange cf1 cf2
+
+> combineRange :: [Range] -> [Range] -> [Range]
+> combineRange [] rs2 = rs2
+> combineRange rs1 [] = rs1
+> combineRange ((r1@(Range b1 e1)):rs1) ((r2@(Range b2 e2)):rs2) 
+>   | b1 == b2 && e1 >= e2 = (Range b1 e1):(combineRange rs1 rs2)
+>   | b1 == b2 && e2 >= e1 = (Range b2 e2):(combineRange rs1 rs2)
+>   | b1 == e2+1 = (Range b2 e1):(combineRange rs1 rs2)
+>   | b2 == e1+1 = (Range b1 e2):(combineRange rs1 rs2)
+>   | b1 > e2+1 = (Range b2 e2):(combineRange (r1:rs1) rs2)
+>   | b2 > e1+1 = (Range b1 e1):(combineRange rs1 (r2:rs2))
+>   | otherwise = error $ "unhandle combineRange:" ++ show (r1:rs1) ++ " vs " ++ show (r2:rs2)
+
+> combineCFs :: [CarryForward] -> CarryForward 
+> combineCFs cfs = foldl' (\cf1 cf2 -> cf1 `combineCF` cf2) emptyCF cfs
+
+> insertCF :: SRange -> CarryForward -> CarryForward 
+> insertCF (x,r) cf = IM.insert x r cf
+
+
+> data SBinder = SChoice [SBinder] CarryForward                
+>           | SPair SBinder SBinder CarryForward              
+>           | SVar SRange SBinder CarryForward
+>           | SStar CarryForward -- no need to store any SBinder, but 
+>           | SRE CarryForward
 >    deriving Show
 
 > toSBinder :: Pat -> SBinder
-> toSBinder (PVar x w p) = SVar (x,[]) (toSBinder p) []
-> toSBinder (PE rs) = SRE []
-> toSBinder (PStar p g) = SStar []
-> toSBinder (PPair p1 p2) = SPair (toSBinder p1) (toSBinder p2) []
-> toSBinder (PChoice ps g) = SChoice (map toSBinder ps) []
+> toSBinder (PVar x w p) = SVar (x,[]) (toSBinder p) emptyCF
+> toSBinder (PE rs) = SRE emptyCF
+> toSBinder (PStar p g) = SStar emptyCF
+> toSBinder (PPair p1 p2) = SPair (toSBinder p1) (toSBinder p2) emptyCF
+> toSBinder (PChoice ps g) = SChoice (map toSBinder ps) emptyCF
 
 
 
 The invariance: 
 The shapes of the input/output Pat and SBinder should be identical.
 
-> {-                   
-> dPat0 :: Pat -> Char -> [(Pat, Int -> SBinder -> SBinder)]  -- the lists are always singleton,
-> dPat0 (PVar x w p) l = 
->    do { (p',f) <- dPat0 p l
->       ; if isPhi (strip p') -- simplification
->         then mzero
->         else (return (PVar x [] p', (\i sb -> 
->                              case sb of 
->                              { SVar (v, r) sb' cf -> SVar (v, updateRange i r) (f i sb') cf
->                              ; _ -> error ("dPat0 failed with pattern " ++ (show (PVar x w p))  ++ " and binding " ++ (show sb))
->                              }) )) 
->       }
-
-> dPat0 (PE r) l =
->    let pds = partDeriv r l
->    in pds `seq` if null pds then []
->                 else [ (PE (resToRE pds), (\_ -> id) )]  
-> dPat0 (PStar p g) l = 
->    do { (p', f) <- dPat0 p l        
->       ; let emp = toSBinder p                     
->       ; return (PPair p' (PStar p g), (\i sb -> 
->                     case sb of { SStar cf -> SPair (f i emp) sb cf} ) ) 
->       }
-> dPat0 (PPair p1 p2) l 
->    | (isPhi (strip p1) || isPhi (strip p2)) = mzero -- simplification
->    | (posEpsilon (strip p1)) =
->         let pf1 = dPat0 p1 l -- we need to remove the empty pattern (potentially)
->             pf2 = dPat0 p2 l 
->         in case (pf1, pf2) of 
->         { ([], []) -> [] 
->         ; ([], _ ) -> simplify $ do 
->            { (p2', f2) <- pf2 -- we drop the sb1, because it reaches no state
->            ; let rm = extract p1
->            ; simp $ return (p2', (\i sb -> case sb of 
->                           { SPair sb1 sb2 cf -> 
->                              let sb1' = rm sb1 
->                              in carryForward (sb1'++cf) (f2 i sb2) }))
->            }
->         ; (_ , []) -> simplify $ do 
->            { (p1', f1) <- pf1 
->            ; simp $ return ( PPair p1' p2, (\i sb -> case sb of 
->                           { SPair sb1 sb2 cf -> SPair (f1 i sb1) sb2 cf }))
->            }
->         ; (_, _) -> simplify $ do
->            { (p1',f1) <- dPat0 p1 l 
->            ; (p2',f2) <- dPat0 p2 l
->            ; let rm = extract p1
->            ; return ( PChoice [PPair p1' p2, p2'] Greedy
->                     , (\i sb -> case sb of 
->                         { SPair sb1 sb2 cf -> 
->                            let sb1' = rm sb1
->                            in SChoice [ SPair (f1 i sb1) sb2 cf, carryForward (sb1'++cf) (f2 i sb2) ] [] -- we shift the sb1 to sb2 in the (f2 i sb2)
->                         } )
->                     ) }
->         }
->    | otherwise =
->         do { (p1',f1) <- dPat0 p1 l
->            ; return ( PPair p1' p2 
->                     , (\i sb -> case sb of 
->                         { SPair sb1 sb2 cf -> SPair (f1 i sb1) sb2 cf } )
->                     ) }
-> dPat0 (PChoice ps g) l 
->    | null ps = []
->    | length ps == 1 = do -- singleton choice, we eliminate the choice
->       { p <- ps  
->       ; (p',f) <- dPat0 p l
->       ; let f' = \i sb -> case sb of { SChoice [sb'] cf -> carryForward cf (f i sb')  }
->       ; return (p', f')
->       }  
->    | otherwise = 
->    let pfs = map (\p -> dPat0 p l) ps
->        nubPF :: [[(Pat, Int -> SBinder -> SBinder)]] -> [(Pat, Int -> SBinder -> SBinder)] 
->        nubPF pfs = nub2Choice pfs M.empty 
->    in simp $ nubPF pfs 
-> -} 
 
 
 
@@ -184,7 +133,7 @@ The shapes of the input/output Pat and SBinder should be identical.
 >              f i sb = case sb of 
 >                 { SPair sb1 sb2 cf -> 
 >                      let sb1' = rm sb1  
->                      in carryForward (sb1' ++ cf) (f2' i sb2) }
+>                      in carryForward (combineCF sb1' cf) (f2' i sb2) }
 >          in do { (p2'',f2'') <- simpFix p2'
 >                ; if p2'' == p2'
 >                  then return (p2', f)
@@ -205,7 +154,7 @@ The shapes of the input/output Pat and SBinder should be identical.
 >               f i sb = case sb of
 >                 { SPair sb1 sb2 cf ->
 >                     let sb1' = rm sb1
->                     in SChoice [ SPair (f1 i sb1) sb2 cf, carryForward (sb1' ++ cf) (f2 i sb2)] [] }
+>                     in SChoice [ SPair (f1 i sb1) sb2 cf, carryForward (sb1' `combineCF` cf) (f2 i sb2)] emptyCF }
 >         ; (p',f') <- simpFix (PChoice [PPair p1' p2, p2'] Greedy) 
 >         ; if (p' == (PChoice [PPair p1' p2, p2'] Greedy))
 >           then return (PChoice [PPair p1' p2, p2'] Greedy, f)
@@ -218,7 +167,7 @@ The shapes of the input/output Pat and SBinder should be identical.
 >               f i sb = case sb of
 >                 { SPair sb1 sb2 cf ->
 >                     let sb1' = rm sb1
->                     in SChoice [carryForward (sb1' ++ cf) (f2 i sb2),  SPair (f1 i sb1) sb2 cf ] [] }
+>                     in SChoice [carryForward (sb1' `combineCF` cf) (f2 i sb2),  SPair (f1 i sb1) sb2 cf ] emptyCF }
 >         ; (p',f') <- simpFix (PChoice [p2' , PPair p1' p2] Greedy) 
 >         ; if (p' == (PChoice [p2' , PPair p1' p2] Greedy))
 >           then return (PChoice [p2' , PPair p1' p2] Greedy, f)
@@ -281,7 +230,7 @@ pfs .... todo
 >      ; return (PChoice ps g, f')
 >      }                                  
 > nub2Choice ([(p,f)]:pfs) pDict  -- recall the invarance of nub2Choice and dPat0, the return value of f shares the same shape of p
->   | isPhi (strip p) || p `M.member` pDict = do  -- simpliciation
+>   | isPhi (strip p) || p `M.member` pDict = do  -- simplification
 >      { (PChoice ps g, f'') <- nub2Choice pfs pDict
 >      ; let f' i sb = case sb of
 >            { SChoice (s:ss) cf ->
@@ -371,12 +320,12 @@ invariance: input / outoput of Int -> SBinder -> SBinder agree with simp's Pat i
 >          | isEpsilon p1'          -> 
 >              let rm = extract p1
 >                  f i sb = case sb of
->                     { SPair sb1 sb2 cf -> let cf' = rm sb1 in carryForward (cf' ++ cf) (f2' i sb2) }
+>                     { SPair sb1 sb2 cf -> let cf' = rm sb1 in carryForward (cf' `combineCF` cf) (f2' i sb2) }
 >              in return (p2',f)
 >          | isEpsilon p2'          ->
 >              let rm = extract p2
 >                  f i sb = case sb of 
->                     { SPair sb1 sb2 cf -> let cf' = rm sb2 in carryForward (cf' ++ cf) (f1' i sb1) }
+>                     { SPair sb1 sb2 cf -> let cf' = rm sb2 in carryForward (cf' `combineCF` cf) (f1' i sb1) }
 >              in return (p1',f)
 >          | otherwise              ->
 >              let f i sb = case sb of
@@ -402,13 +351,15 @@ invariance: input / outoput of Int -> SBinder -> SBinder agree with simp's Pat i
 > simp p = return (p,\i -> id)
 
 
-> carryForward :: [SRange] -> SBinder -> SBinder
-> carryForward sr (SVar (v, r) sb' cf) = SVar (v, r) sb' (cf++sr)
-> carryForward sr (SRE cf) = SRE (cf++sr)
-> carryForward sr (SStar cf) = SStar (cf++sr)
-> carryForward sr (SPair sb1 sb2 cf) = SPair sb1 sb2 (cf++sr)
-> carryForward sr (SChoice sbs cf) = SChoice sbs (cf++sr)
+> carryForward :: CarryForward -> SBinder -> SBinder
+> carryForward sr (SVar (v, r) sb' cf) = SVar (v, r) sb' $ combineCF cf sr
+> carryForward sr (SRE cf) = SRE $ combineCF cf sr
+> carryForward sr (SStar cf) = SStar $ combineCF cf sr
+> carryForward sr (SPair sb1 sb2 cf) = SPair sb1 sb2 $ combineCF cf sr
+> carryForward sr (SChoice sbs cf) = SChoice sbs $ combineCF cf sr
 > carryForward sr sb2 = error ("trying to carry forward into a non-annotated pattern binder " ++ (show sb2))
+
+
 
 > instance Ord Pat where
 >   compare (PVar x1 _ p1) (PVar x2 _ p2) 
@@ -429,15 +380,16 @@ invariance: input / outoput of Int -> SBinder -> SBinder agree with simp's Pat i
 >           assignInt (PChoice _ _) = 4
 
 
+extract a carry foward from the sbinder
 
-> extract :: Pat -> SBinder -> [SRange]
+> extract :: Pat -> SBinder -> CarryForward
 > extract (PVar x w p) (SVar (_,b) sb cf)
->      | posEpsilon (strip p) = (x,b):(extract p sb) ++ cf
->      | otherwise = [] -- cf?
+>      | posEpsilon (strip p) = (insertCF (x,b) (extract p sb)) `combineCF` cf
+>      | otherwise = IM.empty -- cf?
 > extract (PE rs) (SRE cf) = cf
 > extract (PStar p g) (SStar cf) = cf
-> extract (PPair p1 p2) (SPair sb1 sb2 cf) = (extract p1 sb1) ++ (extract p2 sb2) ++ cf
-> extract (PChoice ps g) (SChoice sbs cf) = (concatMap (\(p,sb) -> extract p sb) (zip ps sbs)) ++ cf
+> extract (PPair p1 p2) (SPair sb1 sb2 cf) = (extract p1 sb1) `combineCF` (extract p2 sb2) `combineCF` cf
+> extract (PChoice ps g) (SChoice sbs cf) = (combineCFs $ map (\(p,sb) -> extract p sb) (zip ps sbs)) `combineCF` cf
 > extract p sb = error $ "Error: trying to extract" ++ (show sb) ++ " from " ++ (show p)
 
 
@@ -488,7 +440,7 @@ get all envs from the sbinder
 > sbinderToEnv' (PChoice (p:ps) g) (SChoice (sb:sbs) cf) 
 >   | posEpsilon (strip p) = 
 >   do { env <- sbinderToEnv' p sb
->      ; return (env ++ cf) }
+>      ; return (env ++ (IM.toList cf)) }
 >   | otherwise = sbinderToEnv' (PChoice ps g) (SChoice sbs cf)
 > sbinderToEnv' (PPair p1 p2) (SPair sb1 sb2 cf) =
 >   do { e1 <- sbinderToEnv' p1 sb1 
@@ -496,10 +448,10 @@ get all envs from the sbinder
 >      ; return (e1 ++ e2) }
 > sbinderToEnv' (PVar x _ p) (SVar sr sb cf) 
 >   | posEpsilon (strip p) = do { env <- sbinderToEnv' p sb
->                       ; return ((sr:env) ++ cf) }
+>                       ; return ((sr:env) ++ (IM.toList cf)) }
 >   | otherwise = []
-> sbinderToEnv' (PStar _ _) (SStar cf) = [cf]
-> sbinderToEnv' (PE _) (SRE cf) = [cf]
+> sbinderToEnv' (PStar _ _) (SStar cf) = [IM.toList cf]
+> sbinderToEnv' (PE _) (SRE cf) = [IM.toList cf]
 > sbinderToEnv' p sb = error $ (pretty p) ++ " and " ++ (show sb)
 
 
@@ -540,12 +492,12 @@ get all envs from the sbinder
 testing 
 
 > testp = 
->    let (Right (pp,posixBnd)) = parsePatPosix "(..)*(...)*" -- "X(.?){0,5}Y"
+>    let (Right (pp,posixBnd)) = parsePatPosix "a?(ab|ba)*" -- "(..)*(...)*" -- "X(.?){0,5}Y"
 >    in pp
 
 
 > testp2 = 
->    let (Right (pp,posixBnd)) = parsePatPosix "(..)*(...)*" -- "X(.?){0,5}Y"
+>    let (Right (pp,posixBnd)) = parsePatPosix "a?(ab|ba)*" -- "(..)*(...)*" -- "X(.?){0,5}Y"
 >        fb                    = followBy pp
 >    in (pp,fb,posixBnd)
 
@@ -690,7 +642,7 @@ x0 :: ( x1 :: (  x2 :: (x3:: a | x4 :: ab) | x5 :: b)* )
 >	       where i' = fromIntegral i
 >	             j' = fromIntegral j
 
-> rg_collect_many w rs = foldl S.append S.empty $ map (rg_collect w) rs
+> rg_collect_many w rs = foldl' S.append S.empty $ map (rg_collect w) rs
 
 
 > -- | Control whether the pattern is multiline or case-sensitive like Text.Regex and whether to
@@ -779,7 +731,7 @@ x0 :: ( x1 :: (  x2 :: (x3:: a | x4 :: ab) | x5 :: b)* )
 >                                          in IM.update (\_ -> Just [(i,i)]) x b
 >                        ; _ -> b }
 >                      ; Nothing -> b }
->     in foldl up b fb
+>     in foldl' up b fb
 
 > sbinderToMatchArray l fb posixBnd b  = 
 >     let -- b'        = updateEmptyBinder b fb
@@ -830,5 +782,5 @@ x0 :: ( x1 :: (  x2 :: (x3:: a | x4 :: ab) | x5 :: b)* )
 > buildFollowBy (PPair p1 p2) (acc, lefts) = let (acc',lefts') = buildFollowBy p1 (acc,lefts)
 >                                            in buildFollowBy p2 (acc',lefts')
 > buildFollowBy (PChoice ps _) (acc, lefts) = 
->   foldl (\(acc', lefts') p -> let (acc'', lefts'') = buildFollowBy p (acc',lefts) -- all choice share the same lefts comming from the parent
+>   foldl' (\(acc', lefts') p -> let (acc'', lefts'') = buildFollowBy p (acc',lefts) -- all choice share the same lefts comming from the parent
 >                               in (acc'', lefts' ++ lefts'')) (acc, []) ps
