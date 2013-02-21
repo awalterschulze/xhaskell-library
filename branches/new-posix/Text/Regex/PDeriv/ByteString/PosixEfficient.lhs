@@ -492,12 +492,12 @@ get all envs from the sbinder
 testing 
 
 > testp = 
->    let (Right (pp,posixBnd)) = parsePatPosix "a?(ab|ba)*" -- "(..)*(...)*" -- "X(.?){0,5}Y"
+>    let (Right (pp,posixBnd)) = parsePatPosix "X(.?){0,4}Y"
 >    in pp
 
 
 > testp2 = 
->    let (Right (pp,posixBnd)) = parsePatPosix "a?(ab|ba)*" -- "(..)*(...)*" -- "X(.?){0,5}Y"
+>    let (Right (pp,posixBnd)) = parsePatPosix "X(.?){0,4}Y"
 >        fb                    = followBy pp
 >    in (pp,fb,posixBnd)
 
