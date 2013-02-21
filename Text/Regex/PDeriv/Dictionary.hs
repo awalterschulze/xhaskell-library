@@ -68,7 +68,12 @@ lookupAll key (Dictionary trie) =
         Just (Trie xs _) -> xs
 	_		 -> [] 
 
-
+member :: Key k => k -> Dictionary a -> Bool
+member key d =
+   case Text.Regex.PDeriv.Dictionary.lookup key d of 
+     { Just _ -> True 
+     ; Nothing -> False 
+     }
 
 fromList :: Key k => [(k,a)] -> Dictionary a 
 fromList l = foldl (\d (key,val) -> insert key val d) empty l

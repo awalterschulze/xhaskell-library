@@ -1,7 +1,6 @@
 > module Main where
 
 > import Text.Regex.PDeriv.ByteString.PosixEfficient
-
 > import qualified Data.ByteString.Char8 as S
 
 > usPat = S.pack "^(.*) ([A-Za-z]{2}) ([0-9]{5})(-[0-9]{4})?$"
