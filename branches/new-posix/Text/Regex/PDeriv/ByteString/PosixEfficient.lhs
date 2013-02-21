@@ -44,7 +44,7 @@ We do not break part the sub-pattern of the original reg, they are always groupe
 > import Text.Regex.PDeriv.Common (Range(..), Letter, PosEpsilon(..), my_hash, my_lookup, GFlag(..), IsGreedy(..), preBinder, subBinder, mainBinder)
 > import Text.Regex.PDeriv.IntPattern (Pat(..), toBinder, Binder(..), strip, listifyBinder, Key(..))
 > import Text.Regex.PDeriv.Parse
-> import qualified Text.Regex.PDeriv.Dictionary as D (Dictionary(..), Key(..), insertNotOverwrite, lookupAll, empty, isIn, nub)
+> import qualified Text.Regex.PDeriv.Dictionary as D (Dictionary(..), Key(..), insertNotOverwrite, lookupAll, empty, isIn, nub, member, lookup, insert)
 
 
 
@@ -479,31 +479,42 @@ get all envs from the sbinder
 > buildDfaTable :: Pat -> (DfaTable, SBinder, SBinder -> [Env], [Int])
 > buildDfaTable p = 
 >   let sig = sigmaRE (strip p)
->       init_dict = M.insert p 0 M.empty        
->       (allStates, delta, mapping) = builder sig [] [] init_dict 0 [p] -- 0 is already used by p
+>       -- init_dict = M.insert p 0 M.empty        
+>       -- (allStates, delta, mapping) = builder sig [] [] init_dict 0 [p] -- 0 is already used by p
+>       init_dict = M.insert p 0 M.empty
+>       (delta, mapping) = builder sig [] init_dict 0 [p] -- 0 is already used by p
+>       {- 
 >       pat2id p = case M.lookup p mapping of 
 >              { Just i -> i 
 >              ; Nothing -> error ("pattern not found, this should not happen." ++ (show p) ++ (show (M.toList mapping))) }
->       delta' = map (\ (s,c,d,f) -> (pat2id s, c, pat2id d, f, sbinderToEnv d) ) delta
+>       -}
+>       -- delta' = map (\ (s,c,d,f) -> (pat2id s, c, pat2id d, f, sbinderToEnv d) ) delta
+>       delta' = delta
 >       table = IM.fromList (map (\ (s,c,d,f,sb2env) -> (my_hash s c, (d,f,sb2env))) delta')
->       finals = map pat2id (filter (\p -> posEpsilon (strip p) ) allStates)
+>       -- finals = map pat2id (filter (\p -> posEpsilon (strip p) ) allStates)
+>       finals = [] -- todo
 >   in (table, toSBinder p, sbinderToEnv p, finals)
 
 testing 
 
 > testp = 
->    let (Right (pp,posixBnd)) = parsePatPosix "X(.?){0,4}Y"
+>    let (Right (pp,posixBnd)) = parsePatPosix "X(.?){1,8}Y"
 >    in pp
 
 
 > testp2 = 
->    let (Right (pp,posixBnd)) = parsePatPosix "X(.?){0,4}Y"
+>    let (Right (pp,posixBnd)) = parsePatPosix "X(.?){1,8}Y"
 >        fb                    = followBy pp
 >    in (pp,fb,posixBnd)
 
 
 let sig = sigmaRE (strip testp)
 let init_dict = M.insert testp (0::Int) M.empty
+
+let (delta, mapping) = builder sig [] init_dict (0::Int) [testp]
+
+
+
 let (allStates, delta, mapping) = builder sig [] [] init_dict (0::Int) [testp]
 mapM_ (\p -> putStrLn (show p)) (sort allStates)
 
@@ -520,6 +531,7 @@ mapM_ (\p -> putStrLn (show p)) (sort allStates)
 >   in (map (\p -> (p, pat2id p)) allStates) -- (table, allStates, delta, delta')
 > -}
 
+> {-
 > builder :: [Char] 
 >         -> [Pat] 
 >         -> [ (Pat,Char,Pat,Int -> SBinder -> SBinder) ] 
@@ -537,6 +549,29 @@ mapM_ (\p -> putStrLn (show p)) (sort allStates)
 >           acc_delta_next = acc_delta ++ new_delta
 >           (dict',max_id') = foldl' (\(d,id) p -> (M.insert p (id+1) d, id + 1)) (dict,max_id) new_pats
 >       in {- io `seq` -} builder sig all_sofar_pats acc_delta_next dict' max_id' new_pats     
+> -}
+
+
+> builder :: [Char] 
+>         -> [ (Int,Char,Int,Int -> SBinder -> SBinder, SBinder -> [Env] ) ] 
+>         -> M.Map Pat Int
+>         -> Int
+>         -> [Pat]
+>         -> ([ (Int,Char,Int,Int -> SBinder -> SBinder, SBinder -> [Env] ) ], M.Map Pat Int)
+> builder sig acc_delta dict max_id curr_pats 
+>    | null curr_pats = (acc_delta, dict)
+>    | otherwise = 
+>       let -- all_sofar_pats = dict `union` fromList (zip curr_pats [(id+1)..])
+>       --    io             = logger (print all_sofar_pats)
+>           new_delta      = [ (p,l,p',f', sbinderToEnv p') | p <- curr_pats, l <- sig, (p',f') <- dPat0 p l  ]
+>           new_pats       = D.nub [ p' | (p,l,p',f',g) <- new_delta, not (p' `M.member` dict) ]
+>           (dict',max_id') = foldl' (\(d,id) p -> (M.insert p (id+1) d, id + 1)) (dict,max_id) new_pats
+>           acc_delta_next = acc_delta ++ (map (\(p,l,p',f,g) -> (getId dict' p, l, getId dict' p', f, g)) new_delta)
+>       in {- io `seq` -} builder sig  acc_delta_next dict' max_id' new_pats     
+>  where getId :: M.Map Pat Int -> Pat -> Int 
+>        getId m p = case M.lookup p m of 
+>                    { Just i -> i 
+>                    ; Nothing -> error "getId failed: this should not happen" }
 
 > type Word = S.ByteString
 
