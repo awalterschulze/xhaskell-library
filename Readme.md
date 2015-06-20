@@ -53,7 +53,7 @@ http://sulzmann.blogspot.com/
 ```
 > module Main where
 
-this example shows that the overhead with this pure approach is 
+this example shows that the overhead with this pure approach is
 coming from the uncons operation for bytestring
 
 > import System
@@ -63,14 +63,14 @@ coming from the uncons operation for bytestring
 
 > pat = S.pack "^.*$"
 
-> parse compiled s = case regexec compiled s of 
+> parse compiled s = case regexec compiled s of
 >                      (Right (Just (_,_,_,l))) -> Just l
 >                      _ -> Nothing
 
 > main :: IO ()
-> main = do 
+> main = do
 >   { [ i ] <- getArgs
->   ; let 
+>   ; let
 >         x = read i
 >         ls = S.replicate x 'a'
 >         compiled = case compile defaultCompOpt defaultExecOpt pat of

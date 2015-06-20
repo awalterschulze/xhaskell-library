@@ -3,10 +3,10 @@
 A bytestring implementation of reg exp pattern matching using partial derivative
 
 > {-# LANGUAGE GADTs, MultiParamTypeClasses, FunctionalDependencies,
->     FlexibleInstances, TypeSynonymInstances, FlexibleContexts #-} 
+>     FlexibleInstances, TypeSynonymInstances, FlexibleContexts #-}
 
 
-> module Text.Regex.PDeriv.ByteString 
+> module Text.Regex.PDeriv.ByteString
 >     ( Regex
 >     , CompOption(..)
 >     , ExecOption(..)
@@ -15,7 +15,7 @@ A bytestring implementation of reg exp pattern matching using partial derivative
 >     , compile
 >     , execute
 >     , regexec
->     ) where 
+>     ) where
 
 The re-exports
 
@@ -27,5 +27,4 @@ The re-exports
 >                                                 , compile
 >                                                 , execute
 >                                                 , regexec
->                                                 ) 
-
+>                                                 )

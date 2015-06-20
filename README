@@ -15,4 +15,3 @@ Text.Regex.Base
  Text/Regex/PDeriv/Nfa.lhs			The NFA stuff
  Text/Regex/PDeriv/Pretty.lhs			The Pretty type class
  example/USAddress.lhs				The example
- 

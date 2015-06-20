@@ -36,61 +36,61 @@ primeR :: Int
 primeR = 577
 
 empty :: Dictionary a
-empty = Dictionary emptyTrie 
+empty = Dictionary emptyTrie
 
 -- insert and overwrite
 insert :: Key k => k -> a -> Dictionary a -> Dictionary a
-insert key val (Dictionary trie) = 
+insert key val (Dictionary trie) =
     let key_hash = hash key
     in key_hash `seq` Dictionary (insertTrie True key_hash val trie)
 
 -- insert not overwrite
 insertNotOverwrite :: Key k => k -> a -> Dictionary a -> Dictionary a
-insertNotOverwrite key val (Dictionary trie) = 
+insertNotOverwrite key val (Dictionary trie) =
     let key_hash = hash key
     in key_hash `seq` Dictionary (insertTrie False key_hash val trie)
 
 
 
 lookup :: Key k => k -> Dictionary a -> Maybe a
-lookup key (Dictionary trie) = 
+lookup key (Dictionary trie) =
     let key_hash = hash key
-    in key_hash `seq` 
+    in key_hash `seq`
        case lookupTrie key_hash trie of
         Just (Trie (x:_) _) -> Just x
 	_		    -> Nothing
 
 lookupAll :: Key k => k -> Dictionary a -> [a]
-lookupAll key (Dictionary trie) = 
+lookupAll key (Dictionary trie) =
     let key_hash = hash key
-    in key_hash `seq` 
+    in key_hash `seq`
        case lookupTrie key_hash trie of
         Just (Trie xs _) -> xs
-	_		 -> [] 
+	_		 -> []
 
 
 
-fromList :: Key k => [(k,a)] -> Dictionary a 
+fromList :: Key k => [(k,a)] -> Dictionary a
 fromList l = foldl (\d (key,val) -> insert key val d) empty l
 
-fromListNotOverwrite :: Key k => [(k,a)] -> Dictionary a 
+fromListNotOverwrite :: Key k => [(k,a)] -> Dictionary a
 fromListNotOverwrite l = foldl (\d (key,val) -> insertNotOverwrite key val d) empty l
 
 update :: Key k => k -> a -> Dictionary a -> Dictionary a
-update key val (Dictionary trie) = 
+update key val (Dictionary trie) =
     let key_hash = hash key
         trie'     = key_hash `seq` updateTrie key_hash val trie
     in Dictionary trie'
 
 
 -- The following are some special functions we implemented for
--- an special instance of the dictionary 'Dictionary (k,a)' 
--- in which we store both the key k together with the actual value a, 
+-- an special instance of the dictionary 'Dictionary (k,a)'
+-- in which we store both the key k together with the actual value a,
 -- i.e. we map (hash k) to list of (k,a) value pairs
 
 -- ^ the dictionary (k,a) version of elem
 isIn :: (Key k, Eq k) => k -> Dictionary (k,a) -> Bool
-isIn k dict = 
+isIn k dict =
     let all = lookupAll (hash k) dict
     in k `elem` (map fst all)
 
@@ -99,15 +99,15 @@ nub ks = nubSub ks empty
 
 nubSub :: (Key k, Eq k) => [k] -> Dictionary (k,()) -> [k]
 nubSub [] d = []
-nubSub (x:xs) d 
+nubSub (x:xs) d
     | x `isIn` d = nubSub xs d
-    | otherwise = let d' = insertNotOverwrite x (x,()) d 
+    | otherwise = let d' = insertNotOverwrite x (x,()) d
                   in x:(nubSub xs d')
 
 
 
 
--- An internal trie which we use to implement the dictoinar 
+-- An internal trie which we use to implement the dictoinar
 
 data Trie a = Trie ![a] !(IM.IntMap (Trie a))
 
@@ -115,12 +115,12 @@ emptyTrie = Trie [] (IM.empty)
 
 
 insertTrie :: Bool -> [Int] -> a -> Trie a -> Trie a
-insertTrie overwrite [] i (Trie is maps) 
+insertTrie overwrite [] i (Trie is maps)
     | overwrite  =  Trie [i] maps
     | otherwise  =  Trie (i:is) maps
-insertTrie overwrite (word:words) i (Trie is maps) = 
+insertTrie overwrite (word:words) i (Trie is maps) =
     let key = word
-    in key `seq` case IM.lookup key maps of 
+    in key `seq` case IM.lookup key maps of
 	 { Just trie -> let trie' = insertTrie overwrite words i trie
 			    maps' = trie' `seq` IM.update (\x -> Just trie') key maps
 			in maps' `seq` Trie is maps'
@@ -133,9 +133,9 @@ insertTrie overwrite (word:words) i (Trie is maps) =
 
 
 
-lookupTrie :: [Int] -> Trie a -> Maybe (Trie a) 
+lookupTrie :: [Int] -> Trie a -> Maybe (Trie a)
 lookupTrie [] trie = Just trie
-lookupTrie (word:words) (Trie is maps) = 
+lookupTrie (word:words) (Trie is maps) =
     let key = word
     in case IM.lookup key maps of
 	   Just trie -> lookupTrie words trie
@@ -151,6 +151,3 @@ updateTrie (word:words) v  (Trie is maps) =
 			    maps'  = IM.update (\x -> Just trie') key maps
 			in Trie is maps'
 	   Nothing   -> Trie is maps
-
-
-

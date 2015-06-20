@@ -1,9 +1,9 @@
 > {-# LANGUAGE GADTs, MultiParamTypeClasses, FunctionalDependencies,
->     FlexibleInstances, TypeSynonymInstances, FlexibleContexts #-} 
+>     FlexibleInstances, TypeSynonymInstances, FlexibleContexts #-}
 > -- | This module defines data types, type classes and instances for NFA
-> module Text.Regex.PDeriv.Nfa where 
+> module Text.Regex.PDeriv.Nfa where
 
-> import Data.List 
+> import Data.List
 
 > -- | The type class of Nfa
 > class Nfa s a | s -> a where
@@ -11,7 +11,7 @@
 >    sigma :: s -> [a]
 >    empty :: s -> Bool
 
-> -- | A function that builds an NFA 
+> -- | A function that builds an NFA
 > buildNFA :: (Nfa s a, Eq s, Eq a) => s -> NFA s a
 > buildNFA init = {- all `seq` delta `seq` final `seq` -}
 >                 NFA { all_states = all
@@ -26,7 +26,7 @@
 >      builder acc_states acc_delta curr_states =
 >        let all_sofar_states = acc_states ++ curr_states
 >            new_delta = [ (s, l, s') | s <- curr_states, l <- sig, s' <- pDeriv s l]
->            -- new_states = nub [new_s | s <- curr_states, l <- sig , 
+>            -- new_states = nub [new_s | s <- curr_states, l <- sig ,
 >                         --- new_s <- pDeriv s l, not (elem new_s all_sofar_states)]
 >            new_states = all_sofar_states `seq` nub [ s' | (_,_,s') <- new_delta, not (s' `elem` all_sofar_states) ]
 >            acc_delta_next  = (acc_delta ++ new_delta)
@@ -46,7 +46,7 @@
 >                        , sdelta_states :: [(Int,a,Int)]
 >                        , sinit_states :: [Int]
 >                        , sfinal_states :: [Int] }
->                 
+>
 
 
 > instance Show a => Show (SNFA s a) where
@@ -60,9 +60,9 @@
 > toSNFA (NFA { all_states = all
 >             , delta_states = delta
 >             , init_states = init
->             , final_states = final }) = 
+>             , final_states = final }) =
 >     let -- generate mapping from states to Int
->         mapping = all `seq` \x -> let (Just i) = findIndex (x ==) all in i 
+>         mapping = all `seq` \x -> let (Just i) = findIndex (x ==) all in i
 >         sall_sts = [0..(length all)-1]
 >         sdelta_sts = mapping `seq` delta `seq` ( map (\ (p,x,q) -> (mapping p,x,mapping q)) delta)
 >         sfinal_sts = mapping `seq` final `seq` ( map mapping final )
@@ -77,4 +77,4 @@
 > nofAllStates (NFA {all_states = all}) = length all
 > nofDelta (NFA {delta_states = delta}) = length delta
 > nofInitStates (NFA {init_states = init}) = length init
-> nofFinalStates (NFA {final_states = final}) = length final 
+> nofFinalStates (NFA {final_states = final}) = length final

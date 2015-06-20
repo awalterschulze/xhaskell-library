@@ -1,7 +1,7 @@
 > module Text.Regex.PDeriv.ExtPattern where
 
 > -- | The external pattern syntax (ERE syntax)
-> data EPat = EEmpty 
+> data EPat = EEmpty
 >          | EGroupNonMarking EPat -- ^ non marking group (?: re )
 >          | EGroup EPat    -- ^ the group ( re )
 >          | EOr [EPat]     -- ^ the union re|re
@@ -13,7 +13,7 @@
 >          | ECarat         -- ^ the ^ NOTE:shouldn't this must be top level?
 >          | EDollar        -- ^ the $
 >          | EDot           -- ^ the any char .
->          | EAny [Char]    -- ^ the character class [ a-z ] 
+>          | EAny [Char]    -- ^ the character class [ a-z ]
 >          | ENoneOf [Char] -- ^ the negative character class [^a-z]
 >          | EEscape Char   -- ^ backslash char
 >          | EChar Char     -- ^ the non-escaped char

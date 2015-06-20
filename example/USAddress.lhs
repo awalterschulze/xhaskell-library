@@ -12,9 +12,9 @@
 >            Left _ -> error " compilation failed . "
 >            Right r -> r
 
-> parseUSAddrCompiled s = 
->     let res = regexec compiled s 
->     in case res of 
+> parseUSAddrCompiled s =
+>     let res = regexec compiled s
+>     in case res of
 >            { (Right (Just (_,_,_,l@[addr_with_city,state,zip,szip]) )) -> Just l
 >            ; _ -> Nothing
 >            }

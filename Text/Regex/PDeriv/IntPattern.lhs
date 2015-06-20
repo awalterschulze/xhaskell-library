@@ -1,7 +1,7 @@
 > {-# LANGUAGE BangPatterns #-}
-> -- | This module defines the data type of internal regular expression pattern, 
+> -- | This module defines the data type of internal regular expression pattern,
 > -- | as well as the partial derivative operations for regular expression patterns.
-> module Text.Regex.PDeriv.IntPattern 
+> module Text.Regex.PDeriv.IntPattern
 >     ( Pat(..)
 >     , strip
 >     , pdPat
@@ -24,11 +24,11 @@
 
 
 > -- | regular expression patterns
-> data Pat = PVar Int [Range] Pat       -- ^ variable pattern 
+> data Pat = PVar Int [Range] Pat       -- ^ variable pattern
 >   | PE RE                             -- ^ pattern without binder
 >   | PPair Pat Pat                     -- ^ pair pattern
->   | PChoice Pat Pat GFlag             -- ^ choice pattern 
->   | PStar Pat GFlag                   -- ^ star pattern 
+>   | PChoice Pat Pat GFlag             -- ^ choice pattern
+>   | PStar Pat GFlag                   -- ^ star pattern
 >   | PPlus Pat Pat                     -- ^ plus pattern, it is used internally to indicate that it is unrolled from a PStar
 >   | PEmpty Pat                        -- ^ empty pattern, it is used intermally to indicate that mkEmpty function has been applied.
 
@@ -39,14 +39,14 @@
 >     Essential for later comparisons among patterns. -}
 
 > instance Eq Pat where
->   (==) (PVar x1 _ p1) (PVar x2 _ p2) = (x1 == x2) && (p1 == p2) 
+>   (==) (PVar x1 _ p1) (PVar x2 _ p2) = (x1 == x2) && (p1 == p2)
 >   (==) (PPair p1 p2) (PPair p1' p2') = (p1 == p1') && (p2 == p2')
 >   (==) (PChoice p1 p2 g1) (PChoice p1' p2' g2) = (g1 == g2) && (p2 == p2') && (p1 == p1') -- more efficient, because choices are constructed in left-nested
 >   (==) (PPlus p1 p2) (PPlus p1' p2') = (p1 == p1') && (p2 == p2')
 >   (==) (PStar p1 g1) (PStar p2 g2) =  (g1 == g2) && (p1 == p2)
 >   (==) (PE r1) (PE r2) = r1 == r2
 >   (==) _ _ = False
-> 
+>
 
 > instance Pretty Pat where
 >     pretty (PVar x1 _ p1) = "(" ++ show x1 ++ ":" ++ pretty p1 ++ ")"
@@ -61,15 +61,15 @@
 >     show pat = pretty pat
 
 > instance Key Pat where
->     hash (PVar x1 _ p1) = let y1 = head (hash x1) 
+>     hash (PVar x1 _ p1) = let y1 = head (hash x1)
 >                               y2 = head (hash p1)
->                           in y1 `seq` y2 `seq` [ 1 + y1 * primeL + y2 * primeR ] 
+>                           in y1 `seq` y2 `seq` [ 1 + y1 * primeL + y2 * primeR ]
 >     hash (PPair p1 p2) = let x1 = head (hash p1)
 >                              x2 = head (hash p2)
->                          in x1 `seq` x2 `seq` [ 2 + x1 * primeL + x2 * primeR ] 
+>                          in x1 `seq` x2 `seq` [ 2 + x1 * primeL + x2 * primeR ]
 >     hash (PChoice p1 p2 Greedy) = let x1 = head (hash p1)
 >                                       x2 = head (hash p2)
->                                   in x1 `seq` x2 `seq`  [ 4 + x1 * primeL + x2 * primeR ] 
+>                                   in x1 `seq` x2 `seq`  [ 4 + x1 * primeL + x2 * primeR ]
 >     hash (PChoice p1 p2 NotGreedy) = let x1 = head (hash p1)
 >                                          x2 = head (hash p2)
 >                                      in x1 `seq` x2 `seq` [ 5 + x1 * primeL + x2 * primeR ]
@@ -87,7 +87,7 @@
 >
 
 > -- | function 'strip' strips away the bindings from a pattern
-> strip :: Pat -> RE 
+> strip :: Pat -> RE
 > strip (PVar _ w p) = strip p
 > strip (PE r) = r
 > strip (PStar p g) = Star (strip p) g
@@ -100,7 +100,7 @@
 > -- | function 'mkEmpPat' makes an empty pattern
 > mkEmpPat :: Pat -> Pat
 > mkEmpPat (PVar x w p) = PVar x w (mkEmpPat p)
-> mkEmpPat (PE r) 
+> mkEmpPat (PE r)
 >   | posEpsilon r = PE Empty
 >   | otherwise = PE Phi
 > mkEmpPat (PStar p g) = PE Empty -- problematic?! we are losing binding (x,()) from  ( x : a*) ~> PE <>
@@ -113,19 +113,19 @@
 >    For p*, we need to unroll it into a special construct
 >    say PPlus p' p* where p' \in p/l.
 >    When we push another label, say l' to PPlus p' p*, and
->    p' is emptiable, naively, we would do 
+>    p' is emptiable, naively, we would do
 >    [ PPlus p'' p* | p'' <- p' / l ] ++ [ PPlus (mkE p') (PPlus p''' p*) | (PPlus p''' p*) <- p*/l ]
->    Now the problem here is the shape of the pdpat are infinite, which 
+>    Now the problem here is the shape of the pdpat are infinite, which
 >    breaks the requirement of getting a compilation scheme.
 >    The fix here is to simplify the second component, by combining the binding, of (mkE p') and p'''
 >    since they share the same set of variables.
->    [ PPlus p'' p* | p'' <- p' / l ] ++ [ PPlus p4 p* | (PPlus p''' p*) <- p*/l ] 
+>    [ PPlus p'' p* | p'' <- p' / l ] ++ [ PPlus p4 p* | (PPlus p''' p*) <- p*/l ]
 >    where p4 = combineBinding (mkE p') p'''
->    For pdPat0 approach, we do not need to do this explicitly, we simply drop 
+>    For pdPat0 approach, we do not need to do this explicitly, we simply drop
 >    (mkE p') even in the PPair case. see the definitely of pdPat0 below
 > -}
 > pdPat :: Pat -> Letter -> [Pat]
-> pdPat (PVar x w p) (l,idx) = 
+> pdPat (PVar x w p) (l,idx) =
 >          let pds = pdPat p (l,idx)
 >          in if null pds then []
 >             else case w of
@@ -135,52 +135,52 @@
 >                         [ PVar x ((range b idx):rs) pd | pd <- pds ]
 >                     | otherwise ->      -- it is NOT consecutive
 >                         [ PVar x ((range idx idx):rs_) pd | pd <- pds ]
-> pdPat (PE r) (l,idx) = let pds = partDeriv r l 
+> pdPat (PE r) (l,idx) = let pds = partDeriv r l
 >                  in if null pds then []
 >                     else [ PE $ resToRE pds ]
-> {-| The non-greedy operator has impact to a sequence pattern if the 
->     first sub pattern is non-greedy. We simply swap the order of the 
->     'choices' in the resulting pds. -} 
-> pdPat (PPair p1 p2) l = 
+> {-| The non-greedy operator has impact to a sequence pattern if the
+>     first sub pattern is non-greedy. We simply swap the order of the
+>     'choices' in the resulting pds. -}
+> pdPat (PPair p1 p2) l =
 >   if (posEpsilon (strip p1))
 >   then  if isGreedy p1
->         then nub ([ PPair p1' p2 | p1' <- pdPat p1 l] ++ 
+>         then nub ([ PPair p1' p2 | p1' <- pdPat p1 l] ++
 >                   [ PPair (mkEmpPat p1) p2' | p2' <- pdPat p2 l])
 >         else nub ( [ PPair (mkEmpPat p1) p2' | p2' <- pdPat p2 l] ++ [ PPair p1' p2 | p1' <- pdPat p1 l] )
 >   else [ PPair p1' p2 | p1' <- pdPat p1 l ]
 > {-| Integrating non-greedy operator with pstar requires more cares.
 >     We have two questions to consider.
 >      1) When we unfold p*, do we need to take the non-greediness in p into consideration?
->         The answer is no. 
+>         The answer is no.
 >         What happens is that when we unfold p* into p and p*, if we were considering p is non-greedy and apply pdpat to p*
->         again, i.e. mkE(p),p*/l we will run into non-terminating problem. This seems to be bug with python re library. -} 
+>         again, i.e. mkE(p),p*/l we will run into non-terminating problem. This seems to be bug with python re library. -}
 > pdPat (PStar p g) l = let pds = pdPat p l
 >                       in [ PPlus pd (PStar p g) | pd <- pds ]
 > {-| 2) After we unfold p* and 'advance' to (PPlus p' p*) say p' \in p / l for some l
->        we are in the position of 'pushing' another label l' into  (PPlus p' p*). 
+>        we are in the position of 'pushing' another label l' into  (PPlus p' p*).
 >     Shall we swap the order of the alternatives when p' is non-greedy?
 >     Why not? This seems harmless since we have already made some progress by pushing l into p*. -}
 > pdPat (PPlus p1 p2@(PStar _ _)) l -- p2 must be pStar
->     | posEpsilon (strip p1) = 
->         if isGreedy p1 
+>     | posEpsilon (strip p1) =
+>         if isGreedy p1
 >         then [ PPlus p3 p2 | p3  <- pdPat p1 l ] ++ [ PPlus p3 p2' | (PPlus p1' p2') <- pdPat p2 l, let p3 =  p1' `getBindingsFrom` p1 ]
 >         else [ PPlus p3 p2' | (PPlus p1' p2') <- pdPat p2 l, let p3 =  p1' `getBindingsFrom` p1 ] ++ [ PPlus p3 p2 | p3  <- pdPat p1 l ]
 >     | otherwise          = [ PPlus p3 p2 | p3  <- pdPat p1 l ]
-> pdPat (PChoice p1 p2 g) l = 
+> pdPat (PChoice p1 p2 g) l =
 >    nub ((pdPat p1 l)  ++ (pdPat p2 l)) -- nub doesn't seem to be essential
 > pdPat p l = error ((show p) ++ (show l))
 
 > -- | function 'getBindingsFrom' transfer bindings from p2 to p1
-> getBindingsFrom :: Pat  -- ^ the source of the  
+> getBindingsFrom :: Pat  -- ^ the source of the
 >                    -> Pat -> Pat
 > getBindingsFrom p1 p2 = let b = toBinder p2
 >                         in assign p1 b
 >     where assign :: Pat -> Binder -> Pat
->           assign (PVar x w p) b = 
+>           assign (PVar x w p) b =
 >               case IM.lookup x b of
 >                  Nothing -> let p' = assign p b in PVar x w p'
 >                  Just rs -> let
->                                 p' = assign p b 
+>                                 p' = assign p b
 >                             in PVar x (w ++ rs) p'
 >           assign (PE r) _ = PE r
 >           assign (PPlus p1 p2) b = PPlus (assign p1 b) p2 -- we don't need to care about p2 since it is a p*
@@ -209,14 +209,14 @@
 
 > -- | check whether a pattern has binder
 > hasBinder :: Pat -> Bool
-> hasBinder (PVar _ _ _) = True                              
+> hasBinder (PVar _ _ _) = True
 > hasBinder  (PPair p1 p2) = (hasBinder p1) || (hasBinder p2)
-> hasBinder  (PPlus p1 p2) = hasBinder p1 
-> hasBinder  (PStar p1 g)  = hasBinder p1 
+> hasBinder  (PPlus p1 p2) = hasBinder p1
+> hasBinder  (PStar p1 g)  = hasBinder p1
 > hasBinder  (PE r)        = False
 > hasBinder  (PChoice p1 p2 g) = (hasBinder p1) || (hasBinder p2)
 > hasBinder  (PEmpty p) = hasBinder p
-                                                      
+
 
 > -- | Function 'toBinder' turns a pattern into a binder
 > toBinder :: Pat -> Binder
@@ -225,45 +225,45 @@
 > toBinderList :: Pat -> [(Int, [Range])]
 > toBinderList  (PVar i rs p) = [(i, rs)] ++ (toBinderList p)
 > toBinderList  (PPair p1 p2) = (toBinderList p1) ++ (toBinderList p2)
-> toBinderList  (PPlus p1 p2) = (toBinderList p1) 
-> toBinderList  (PStar p1 g)    = (toBinderList p1) 
+> toBinderList  (PPlus p1 p2) = (toBinderList p1)
+> toBinderList  (PStar p1 g)    = (toBinderList p1)
 > toBinderList  (PE r)        = []
 > toBinderList  (PChoice p1 p2 g) = (toBinderList p1) ++ (toBinderList p2)
 > toBinderList  (PEmpty p) = toBinderList p
 
 > listifyBinder :: Binder -> [(Int, [Range])]
 > listifyBinder b = sortBy (\ x y -> compare (fst x) (fst y)) (IM.toList b)
->                   
+>
 
 > {-| Function 'updateBinderByIndex' updates a binder given an index to a pattern var
 >     ASSUMPTION: the var index in the pattern is linear. e.g. no ( 0 :: R1, (1 :: R2, 2 :a: R3))
 > -}
 
-> updateBinderByIndex :: Int 
->                     -> Int 
->                     -> Binder 
+> updateBinderByIndex :: Int
+>                     -> Int
+>                     -> Binder
 >                     -> Binder
 > updateBinderByIndex i !pos binder =  -- binder  {-
 >     IM.update (\ r -> case r of  -- we always initialize to [], we don't need to handle the key miss case
->                       {  (rs_@((Range b e):rs)) -> 
+>                       {  (rs_@((Range b e):rs)) ->
 >                           let !e' =  e + 1
->                           in case e' of                                                    
+>                           in case e' of
 >                              _ | pos == e' -> Just ((range b e'):rs)
 >                                | pos > e'  -> Just ((range pos pos):rs_)
->                                | otherwise    -> error "impossible, the current letter position is smaller than the last recorded letter"   
->                       ; [] -> Just [(range pos pos)] 
+>                                | otherwise    -> error "impossible, the current letter position is smaller than the last recorded letter"
+>                       ; [] -> Just [(range pos pos)]
 >                       } ) i binder -- -}
 > {-
-> updateBinderByIndex i pos binder = 
+> updateBinderByIndex i pos binder =
 >     case IM.lookup i binder of
 >       { Nothing -> IM.insert i [(pos, pos)] binder
->       ; Just ranges -> 
->         case ranges of 
+>       ; Just ranges ->
+>         case ranges of
 >         { [] -> IM.update (\_ -> Just [(pos,pos)]) i binder
 >          ; ((b,e):rs)
->           | pos == e + 1  -> IM.update (\_ -> Just ((b,e+1):rs)) i binder 
+>           | pos == e + 1  -> IM.update (\_ -> Just ((b,e+1):rs)) i binder
 >           | pos > e + 1 -> IM.update (\_ -> Just ((pos,pos):(b,e):rs)) i binder
->           | otherwise     -> error "impossible, the current letter position is smaller than the last recorded letter"   
+>           | otherwise     -> error "impossible, the current letter position is smaller than the last recorded letter"
 >         }
 >       }
 > -}
@@ -273,8 +273,8 @@
 >                        -> Int -- ^ the letter position
 >                        -> Binder -> Binder
 > updateBinderByIndex i lpos binder =
->     updateBinderByIndexSub i lpos binder 
-> 
+>     updateBinderByIndexSub i lpos binder
+>
 > {-# INLINE updateBinderByIndexSub #-}
 > updateBinderByIndexSub :: Int -> Int -> Binder -> Binder
 > updateBinderByIndexSub idx pos [] = []
@@ -282,27 +282,27 @@
 >     -- | pos `seq` idx `seq` idx' `seq` xs `seq` False = undefined
 >     | idx == idx' = if pos == (e + 1)
 >                     then (idx', (b, e+ 1):rs):xs
->                     else if pos > (e + 1) 
+>                     else if pos > (e + 1)
 >                          then (idx', (pos,pos):(b, e):rs):xs
 >                          else error "impossible, the current letter position is smaller than the last recorded letter"
->     | otherwise = -- idx `seq` pos `seq` xs `seq` 
+>     | otherwise = -- idx `seq` pos `seq` xs `seq`
 >                    x:(updateBinderByIndexSub idx pos xs)
 > updateBinderByIndexSub idx pos (x@(idx',[]):xs)
 >     -- | pos `seq` idx `seq` idx' `seq` xs `seq` False = undefined
 >     | idx == idx' = ((idx', [(pos, pos)]):xs)
->     | otherwise = -- idx `seq` pos `seq` xs `seq`  
+>     | otherwise = -- idx `seq` pos `seq` xs `seq`
 >                   x:(updateBinderByIndexSub idx pos xs)
-> -} 
+> -}
 
 > {-| Function 'pdPat0' is the 'abstracted' form of the 'pdPat' function
 >     It computes a set of pairs. Each pair consists a 'shape' of the partial derivative, and
->     an update function which defines the change of the pattern bindings from the 'source' pattern to 
+>     an update function which defines the change of the pattern bindings from the 'source' pattern to
 >     the resulting partial derivative. This is used in the compilation of the regular expression pattern -}
 > pdPat0 :: Pat  -- ^ the source pattern
 >           -> Letter -- ^ the letter to be "consumed"
 >           -> [(Pat, Int -> Binder -> Binder)]
-> pdPat0 (PVar x w p) (l,idx) 
->     | hasBinder p = 
+> pdPat0 (PVar x w p) (l,idx)
+>     | hasBinder p =
 >         let pfs = pdPat0 p (l,idx)
 >         in g `seq` pfs `seq` [ (PVar x [] pd, (\i -> (g i) . (f i) )) | (pd,f) <- pfs ]
 >     | otherwise = -- p is not nested
@@ -310,42 +310,42 @@
 >         in g `seq` pds `seq` if null pds then []
 >                              else -- not PCRE [ (PVar x [] (PE (resToRE pds)), g) ]
 >                                   [ (PVar x [] (PE pd), g) | pd <- pds ]
->     where g = updateBinderByIndex x 
+>     where g = updateBinderByIndex x
 > {-
 >     | IM.null (toBinder p) = -- p is not nested
 >         let pds = partDeriv (strip p) l
 >         in g `seq` pds `seq` if null pds then []
 >                              else [ (PVar x [] (PE (resToRE pds)), g) ]
->     | otherwise = 
+>     | otherwise =
 >         let pfs = pdPat0 p (l,idx)
 >         in g `seq` pfs `seq` [ (PVar x [] pd, (\i -> (g i) . (f i) )) | (pd,f) <- pfs ]
->     where g = updateBinderByIndex x 
+>     where g = updateBinderByIndex x
 > -}
-> pdPat0 (PE r) (l,idx) = 
+> pdPat0 (PE r) (l,idx) =
 >     let pds = partDeriv r l
 >     in  pds `seq` if null pds then []
 >                   else [ (PE (resToRE pds), ( \_ -> id ) ) ]
 > pdPat0 (PStar p g) l = let pfs = pdPat0 p l
 >                        in pfs `seq` [ (PPair p' (PStar p g), f) | (p', f) <- pfs ]
-> pdPat0 (PPair p1 p2) l = 
+> pdPat0 (PPair p1 p2) l =
 >     if (posEpsilon (strip p1))
 >     then if isGreedy p1
 >          then nub2 ([ (PPair p1' p2, f) | (p1' , f) <- pdPat0 p1 l ] ++ (pdPat0 p2 l))
 >          else nub2 ((pdPat0 p2 l) ++ [ (PPair p1' p2, f) | (p1' , f) <- pdPat0 p1 l ])
 >     else [ (PPair p1' p2, f) | (p1',f) <- pdPat0 p1 l ]
-> pdPat0 (PChoice p1 p2 g) l = 
+> pdPat0 (PChoice p1 p2 g) l =
 >      nub2 ((pdPat0 p1 l) ++ (pdPat0 p2 l)) -- nub doesn't seem to be essential
 
 
 > nub2 :: Eq a => [(a,b)] -> [(a,b)]
-> nub2 = nubBy (\(p1,f1) (p2, f2) -> p1 == p2) 
+> nub2 = nubBy (\(p1,f1) (p2, f2) -> p1 == p2)
 
 
 > {-| Function 'pdPat0Sim' applies simplification to the results of 'pdPat0' -}
-> pdPat0Sim :: Pat -- ^ the source pattern 
+> pdPat0Sim :: Pat -- ^ the source pattern
 >              -> Letter -- ^ the letter to be "consumed"
 >              -> [(Pat, Int -> Binder -> Binder)]
-> pdPat0Sim p l = 
+> pdPat0Sim p l =
 >      let pfs = pdPat0 p l
 >          pfs' = pfs `seq` map (\(p,f) -> (simplify p, f)) pfs
 >      in nub2 pfs'
@@ -380,17 +380,17 @@
 
 > instance IsEpsilon Pat where
 >    isEpsilon (PVar _ _ p) = isEpsilon p
->    isEpsilon (PE r) = isEpsilon r                                                        
+>    isEpsilon (PE r) = isEpsilon r
 >    isEpsilon (PPair p1 p2) =  (isEpsilon p1) && (isEpsilon p2)
 >    isEpsilon (PChoice p1 p2 _) =  (isEpsilon p1) && (isEpsilon p2)
 >    isEpsilon (PStar p _) = isEpsilon p
 >    isEpsilon (PPlus p1 p2) = isEpsilon p1 && isEpsilon p2
 >    isEpsilon (PEmpty _) = True
-                                                        
+
 
 > instance IsPhi Pat where
 >    isPhi (PVar _ _ p) = isPhi p
->    isPhi (PE r) = isPhi r                                                        
+>    isPhi (PE r) = isPhi r
 >    isPhi (PPair p1 p2) =  (isPhi p1) || (isPhi p2)
 >    isPhi (PChoice p1 p2 _) =  (isPhi p1) && (isPhi p2)
 >    isPhi (PStar p _) = False

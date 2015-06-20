@@ -3,11 +3,11 @@
 A bytestring implementation of reg exp pattern matching using partial derivative
 This algorithm exploits the extension of partial derivative of regular expression patterns.
 This algorithm starts from all the emptiable partial derivatives (AKA final states of the NFA)
-and proceeds by scanning the input word from right to left, until the orginal pattern 
+and proceeds by scanning the input word from right to left, until the orginal pattern
 is reached (AKA init state of the NFA) and the input word is fully consumed.
 
 > {-# LANGUAGE GADTs, MultiParamTypeClasses, FunctionalDependencies,
->     FlexibleInstances, TypeSynonymInstances, FlexibleContexts #-} 
+>     FlexibleInstances, TypeSynonymInstances, FlexibleContexts #-}
 
 
 > module Text.Regex.PDeriv.ByteString.RightToLeft
@@ -20,9 +20,9 @@ is reached (AKA init state of the NFA) and the input word is fully consumed.
 >     , execute
 >     , regexec
 >     , parsePat
->     ) where 
+>     ) where
 
-> import Data.List 
+> import Data.List
 > import Data.Char (ord)
 > import GHC.Int
 > import qualified Data.IntMap as IM
@@ -32,7 +32,7 @@ is reached (AKA init state of the NFA) and the input word is fully consumed.
 
 > import Text.Regex.PDeriv.RE
 > import Text.Regex.PDeriv.Pretty (Pretty(..))
-> import Text.Regex.PDeriv.Common (Range(..), Letter, PosEpsilon(..), Simplifiable(..), my_hash, my_lookup, GFlag(..), IsGreedy(..), nub3, preBinder, mainBinder, subBinder) 
+> import Text.Regex.PDeriv.Common (Range(..), Letter, PosEpsilon(..), Simplifiable(..), my_hash, my_lookup, GFlag(..), IsGreedy(..), nub3, preBinder, mainBinder, subBinder)
 > import Text.Regex.PDeriv.IntPattern (Pat(..), pdPat, pdPat0, pdPat0Sim, toBinder, Binder(..), strip, listifyBinder)
 > import Text.Regex.PDeriv.Parse
 > import qualified Text.Regex.PDeriv.Dictionary as D (Dictionary(..), Key(..), insertNotOverwrite, lookupAll, empty, isIn, nub)
@@ -57,7 +57,7 @@ A word is a byte string.
 
 We compile all the possible partial derivative operation into a table
 The table maps key to a set of target integer states and their corresponding
-binder update functions. 
+binder update functions.
 
 The reverse pdPat0 table, in addtion, we store the priority of the transition.
 
@@ -66,21 +66,21 @@ The reverse pdPat0 table, in addtion, we store the priority of the transition.
 A function that builds the above table from the input pattern
 
 > buildPdPat0Table :: Pat -> (PdPat0TableRev, [Int])
-> buildPdPat0Table init = 
+> buildPdPat0Table init =
 >     let sig = map (\x -> (x,0)) (sigmaRE (strip init))         -- the sigma
 >         init_dict = D.insertNotOverwrite (D.hash init) (init,0) D.empty         -- add init into the initial dictionary
 >         (all, delta, dictionary) = sig `seq` builder sig [] [] [init] init_dict 1   -- all states and delta
 >         final = all `seq`  [ s | s <- all, posEpsilon (strip s)]                   -- the final states
 >         sfinal = final `seq` dictionary `seq` map (mapping dictionary) final
->         lists = delta `seq` dictionary `seq` [ (j, l, (i,f,flag)) | (p,l,f,q,flag) <- delta, 
->                                                let i = mapping dictionary p  
+>         lists = delta `seq` dictionary `seq` [ (j, l, (i,f,flag)) | (p,l,f,q,flag) <- delta,
+>                                                let i = mapping dictionary p
 >                                                    j = mapping dictionary q
 >                                               {- , i `seq` j `seq` True -} ]
 >         -- lists_with_pri =  lists `seq` zip lists [0..]
 >         hash_table =  {-lists_with_pri `seq`-}
->                      foldl (\ dict (q,x,pf@(p,f,flag)) -> 
+>                      foldl (\ dict (q,x,pf@(p,f,flag)) ->
 >                                  let k = my_hash q (fst x)
->                                  in k `seq` case IM.lookup k dict of 
+>                                  in k `seq` case IM.lookup k dict of
 >                                       Just pfs -> IM.update (\x -> Just (pfs ++ [(p,f,flag)])) k dict
 >                                       Nothing -> IM.insert k [(p,f,flag)] dict) IM.empty lists
 >     in sfinal `seq` (hash_table, sfinal)
@@ -93,44 +93,44 @@ Some helper functions used in buildPdPat0Table
 
 > mapping :: D.Dictionary (Pat,Int) -> Pat -> Int
 > mapping dictionary x = let candidates = D.lookupAll (D.hash x) dictionary
->                        in candidates `seq` 
+>                        in candidates `seq`
 >                           case candidates of
 >                             [(_,i)] -> i
->                             _ -> 
+>                             _ ->
 >                                 case myLookup x candidates of
 >                                 (Just i) -> i
 >                                 Nothing -> error ("this should not happen. looking up " ++ (pretty x) ++ " from " ++ (show candidates) )
 
-> builder :: [Letter] 
->         -> [Pat] 
->         -> [(Pat,Letter, Int -> Binder -> Binder, Pat, Int)] 
->         -> [Pat] 
+> builder :: [Letter]
+>         -> [Pat]
+>         -> [(Pat,Letter, Int -> Binder -> Binder, Pat, Int)]
+>         -> [Pat]
 >         -> D.Dictionary (Pat,Int)
->         -> Int 
+>         -> Int
 >         -> ([Pat], [(Pat, Letter, Int -> Binder -> Binder, Pat, Int)], D.Dictionary (Pat,Int))
-> builder sig acc_states acc_delta curr_states dict max_id 
+> builder sig acc_states acc_delta curr_states dict max_id
 >     | null curr_states  = (acc_states, acc_delta, dict)
->     | otherwise = 
->         let 
+>     | otherwise =
+>         let
 >             all_sofar_states = acc_states ++ curr_states
 >             new_delta = [ (s, l, f, s', flag) | s <- curr_states, l <- sig, ((s',f),flag) <- pdPat0Flag s l]
 >             new_states = all_sofar_states `seq` D.nub [ s' | (_,_,_,s',_) <- new_delta
 >                                                       , not (s' `D.isIn` dict) ]
 >             acc_delta_next  = (acc_delta ++ new_delta)
 >             (dict',max_id') = new_states `seq` foldl (\(d,id) p -> (D.insertNotOverwrite (D.hash p) (p,id) d, id + 1) ) (dict,max_id) new_states
->         in {- dict' `seq` max_id' `seq` -} builder sig all_sofar_states acc_delta_next new_states dict' max_id' 
+>         in {- dict' `seq` max_id' `seq` -} builder sig all_sofar_states acc_delta_next new_states dict' max_id'
 
 > pdPat0Flag p l = let qfs = pdPat0Sim p l
->                  in case qfs of 
+>                  in case qfs of
 >                       []        -> []
->                       [ (q,f) ] -> [ ((q,f),0) ] 
+>                       [ (q,f) ] -> [ ((q,f),0) ]
 >                       qfs       -> zip qfs [1..]
 
 
 
 
 
-> -- | Function 'collectPatMatchFromBinder' collects match results from binder 
+> -- | Function 'collectPatMatchFromBinder' collects match results from binder
 > collectPatMatchFromBinder :: Word -> Binder -> Env
 > collectPatMatchFromBinder w b = collectPatMatchFromBinder_ w (listifyBinder b)
 > collectPatMatchFromBinder_ w [] = []
@@ -140,7 +140,7 @@ Some helper functions used in buildPdPat0Table
 > -- | algorithm right to left scanning single pass
 > -- | the "partial derivative" operations among integer states + binders
 > lookupPdPat0' :: PdPat0TableRev -> Int -> Letter -> [(Int,Int -> Binder -> Binder,Int)]
-> lookupPdPat0' hash_table i (l,x) = 
+> lookupPdPat0' hash_table i (l,x) =
 >     case {-# SCC "lookup" #-} IM.lookup k hash_table of
 >     Just pairs -> pairs
 >     Nothing -> []
@@ -148,10 +148,10 @@ Some helper functions used in buildPdPat0Table
 
 > patMatchesIntStatePdPat0Rev  :: Int -> PdPat0TableRev -> Word -> [(Int, Binder -> Binder, Int)] -> [(Int, Binder -> Binder, Int )]
 > patMatchesIntStatePdPat0Rev  cnt pdStateTableRev w fs =
->     case {-# SCC "myuncons" #-} S.uncons w of 
+>     case {-# SCC "myuncons" #-} S.uncons w of
 >       Nothing -> fs
->       Just (l,w') -> 
->           let 
+>       Just (l,w') ->
+>           let
 >               fs' = nub3 [ g `seq` (j, g, pri) | (i, f, _) <- fs, (j, f', pri) <- lookupPdPat0' pdStateTableRev i (l,cnt), let g = f . (f' cnt) ]
 >               cnt' = {-# SCC "cnt_minus_one" #-} cnt - 1
 >           in fs' `seq` cnt' `seq` patMatchesIntStatePdPat0Rev cnt' pdStateTableRev w' fs'
@@ -160,10 +160,10 @@ Some helper functions used in buildPdPat0Table
 
 > patMatchesIntStatePdPat0Rev'  :: Int -> PdPat0TableRev -> Word -> [(Int, [Binder -> Binder], Int)] -> [(Int, [Binder -> Binder], Int )]
 > patMatchesIntStatePdPat0Rev'  cnt pdStateTableRev w fs =
->     case {-# SCC "myuncons" #-} S.uncons w of 
+>     case {-# SCC "myuncons" #-} S.uncons w of
 >       Nothing -> fs
->       Just (l,w') -> 
->           let 
+>       Just (l,w') ->
+>           let
 >               fs' = nub3 [ g `seq` (j, g, pri) | (i, f, _) <- fs, (j, f', pri) <- lookupPdPat0' pdStateTableRev i (l,cnt), let g = (f' cnt):f ]
 >               cnt' = {-# SCC "cnt_minus_one" #-} cnt - 1
 >           in fs' `seq` cnt' `seq` patMatchesIntStatePdPat0Rev' cnt' pdStateTableRev w' fs'
@@ -171,7 +171,7 @@ Some helper functions used in buildPdPat0Table
 
 
 > patMatchIntStatePdPat0Rev :: Pat -> Word -> [Env]
-> patMatchIntStatePdPat0Rev p w = 
+> patMatchIntStatePdPat0Rev p w =
 >     let
 >         (pdStateTableRev, fins) = buildPdPat0Table p
 >         b = toBinder p
@@ -184,7 +184,7 @@ Some helper functions used in buildPdPat0Table
 >         fs' =  w' `seq` fins `seq` l `seq` pdStateTableRev `seq` (patMatchesIntStatePdPat0Rev' (l-1) pdStateTableRev w' fs)
 >         allbinders = b `seq` [ (foldl' (\x g -> (g x)) b f) | (s,f,_) <- fs', s == 0 ]
 >     in map (collectPatMatchFromBinder w) allbinders
->                      
+>
 
 > -- my_sort = sortBy (\ (_,_,ps) (_,_,ps') -> compare ps ps')
 
@@ -201,7 +201,7 @@ Some helper functions used in buildPdPat0Table
 
 > compilePat :: Pat -> (PdPat0TableRev, [Int], Binder)
 > compilePat p = {- pdStateTable `seq` b `seq` -} (pdStateTable, fins, b)
->     where 
+>     where
 >           (pdStateTable,fins) = buildPdPat0Table p
 >           b = toBinder p
 
@@ -219,7 +219,7 @@ Some helper functions used in buildPdPat0Table
 >         fs' =  w' `seq` fins `seq` l `seq` pdStateTable `seq` (patMatchesIntStatePdPat0Rev' (l-1) pdStateTable w' fs)
 >         allbinders = b `seq` [ (foldl' (\x g -> (g x)) b f) | (s,f,_) <- fs', s == 0 ]
 >     in allbinders `seq` map (collectPatMatchFromBinder w) allbinders
->       
+>
 
 > greedyPatMatchCompiled :: (PdPat0TableRev, [Int], Binder) -> Word -> Maybe Env
 > greedyPatMatchCompiled compiled w =
@@ -232,22 +232,22 @@ Some helper functions used in buildPdPat0Table
 
 > -- | The PDeriv backend spepcific 'Regex' type
 
-newtype Regex = Regex (PdPat0TableRev, SNFA Pat Letter, Binder) 
+newtype Regex = Regex (PdPat0TableRev, SNFA Pat Letter, Binder)
 
-> newtype Regex = Regex (PdPat0TableRev, [Int] , Binder) 
+> newtype Regex = Regex (PdPat0TableRev, [Int] , Binder)
 
 
 -- todo: use the CompOption and ExecOption
 
 > compile :: CompOption -- ^ Flags (summed together)
->         -> ExecOption -- ^ Flags (summed together) 
+>         -> ExecOption -- ^ Flags (summed together)
 >         -> S.ByteString -- ^ The regular expression to compile
 >         -> Either String Regex -- ^ Returns: the compiled regular expression
 > compile compOpt execOpt bs =
 >     case parsePat (S.unpack bs) of
 >     Left err -> Left ("parseRegex for Text.Regex.PDeriv.ByteString failed:"++show err)
 >     Right pat -> Right (patToRegex pat compOpt execOpt)
->     where 
+>     where
 >       patToRegex p _ _ = Regex (compilePat $ simplify p)
 
 
@@ -280,7 +280,7 @@ newtype Regex = Regex (PdPat0TableRev, SNFA Pat Letter, Binder)
 > -- capture the subgroups (\1, \2, etc).  Controls enabling extra anchor syntax.
 > data CompOption = CompOption {
 >       caseSensitive :: Bool    -- ^ True in blankCompOpt and defaultCompOpt
->     , multiline :: Bool 
+>     , multiline :: Bool
 >   {- ^ False in blankCompOpt, True in defaultCompOpt. Compile for
 >   newline-sensitive matching.  "By default, newline is a completely ordinary
 >   character with no special meaning in either REs or strings.  With this flag,
@@ -315,7 +315,7 @@ newtype Regex = Regex (PdPat0TableRev, SNFA Pat Letter, Binder)
 >                                   }
 >     defaultExecOpt =  ExecOption { captureGroups = True }
 >     setExecOpts e r = undefined
->     getExecOpts r = undefined 
+>     getExecOpts r = undefined
 
 
 
@@ -325,10 +325,10 @@ newtype Regex = Regex (PdPat0TableRev, SNFA Pat Letter, Binder)
 > long_pat = PPair (PVar 1 [] (PE (Star (L 'A') Greedy))) (PVar 2 [] (PE (Star (L 'A') Greedy)))
 > long_string n = S.pack $ (take 0 (repeat 'A')) ++ (take n (repeat 'B'))
 
--- p4 = << x : (A|<A,B>), y : (<B,<A,A>>|A) >, z : (<A,C>|C) > 
+-- p4 = << x : (A|<A,B>), y : (<B,<A,A>>|A) >, z : (<A,C>|C) >
 
 > p4 = PPair (PPair p_x p_y) p_z
->    where p_x = PVar 1 [] (PE (Choice (L 'A') (Seq (L 'A') (L 'B')) Greedy))      
+>    where p_x = PVar 1 [] (PE (Choice (L 'A') (Seq (L 'A') (L 'B')) Greedy))
 >          p_y = PVar 2 [] (PE (Choice (Seq (L 'B') (Seq (L 'A') (L 'A'))) (L 'A') Greedy))
 >          p_z = PVar 3 [] (PE (Choice (Seq (L 'A') (L 'C')) (L 'C') Greedy))
 

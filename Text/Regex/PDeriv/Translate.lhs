@@ -1,5 +1,5 @@
 > -- | A translation schema from the external syntax (ERE) to our interal syntax (xhaskell style pattern)
-> module Text.Regex.PDeriv.Translate 
+> module Text.Regex.PDeriv.Translate
 >     ( translate, translatePosix ) where
 
 > import Control.Monad.State -- needed for the translation scheme
@@ -17,17 +17,17 @@
 >                      , gi :: GI     -- ^ (positive) group index
 >                      , anchorStart :: Bool
 >                      , anchorEnd :: Bool
->                      , posix :: Bool -- ^ if posix, add binders to non-groups 
+>                      , posix :: Bool -- ^ if posix, add binders to non-groups
 >                      , posix_binder :: IM.IntMap () -- ^ keep tracks of posix binder
 >                      } -- the state for trasslation
 >             deriving Show
 
 
 > -- variables 0,-1,-2 are reserved for pre, main and post!
-> initTState = TState { ngi = -3, gi = 1, anchorStart = False, anchorEnd = False, posix = False, posix_binder = IM.empty } 
+> initTState = TState { ngi = -3, gi = 1, anchorStart = False, anchorEnd = False, posix = False, posix_binder = IM.empty }
 
 
-> initTStatePosix = TState { ngi = -3, gi = 1, anchorStart = False, anchorEnd = False, posix = True, posix_binder = IM.empty } 
+> initTStatePosix = TState { ngi = -3, gi = 1, anchorStart = False, anchorEnd = False, posix = True, posix_binder = IM.empty }
 
 
 > type NGI = Int -- the non group index
@@ -44,7 +44,7 @@ getters and putters
 > getIncNGI :: State TState NGI -- get then increase
 > getIncNGI = do { st <- get
 >                ; let i = ngi st
->                ; put st{ngi=(i-1)} 
+>                ; put st{ngi=(i-1)}
 >                ; return i
 >                }
 
@@ -53,7 +53,7 @@ getters and putters
 >            ; return $ gi st
 >            }
 
-> getIncGI :: State TState GI -- get then increase 
+> getIncGI :: State TState GI -- get then increase
 > getIncGI = do { st <- get
 >               ; let i = gi st
 >               ; put st{gi=(i+1)}
@@ -99,7 +99,7 @@ getters and putters
 >                    let hasAnchorS = anchorStart state
 >                        hasAnchorE = anchorEnd state
 >                    in case (hasAnchorS, hasAnchorE) of
->                       (True, True)   -> PVar mainBinder [] pat 
+>                       (True, True)   -> PVar mainBinder [] pat
 >                       (True, False)  -> PPair (PVar mainBinder [] pat) (PVar subBinder [] (PE (Star Any NotGreedy)))
 >                       (False, True)  -> PPair (PVar preBinder [] (PE (Star Any NotGreedy))) (PVar mainBinder [] pat)
 >                       -- (False, False) -> PPair (PPair (PVar preBinder [] (PE (Star Any NotGreedy))) (PVar mainBinder [] pat)) (PVar subBinder [] (PE (Star Any NotGreedy)))
@@ -107,7 +107,7 @@ getters and putters
 >                       (False, False) -> (PPair (PVar preBinder [] (PE (Star Any NotGreedy))) (PVar preBinder_ [] (PPair (PVar mainBinder [] pat) (PVar subBinder [] (PE (Star Any NotGreedy))))))
 
 
-> -- |  for posix 
+> -- |  for posix
 > translatePosix :: EPat -> (Pat,IM.IntMap ())
 > translatePosix epat = case runState (trans epat) initTStatePosix of
 >                  (pat, state) ->
@@ -132,10 +132,10 @@ getters and putters
 >     which are fired depending on whether e has Group pattern (...) (i.e. pattern variable)
 > -}
 > trans :: EPat -> State TState Pat
-> trans epat = 
+> trans epat =
 >     do { is_posix <- isPosix -- if it is posix, we need to aggresively "tag" every sub expression with a binder
 >        ; if is_posix && isStructural epat
->          then do 
+>          then do
 >            { gi <- getIncGI
 >            ; ipat <- trans' epat
 >            ; addPosixBinder gi
@@ -145,16 +145,16 @@ getters and putters
 >        }
 >     where isStructural :: EPat -> Bool -- ^ indicate whether it is a complex structure which we need to add extra binding for POSIX tracking
 >           isStructural (EOr _)     = True
->           isStructural (EConcat _) = True                                                                      
+>           isStructural (EConcat _) = True
 >           isStructural (EOpt _ _)  = True
 >           isStructural (EPlus _ _) = True
 >           isStructural (EStar _ _) = True
->           isStructural _           = False                                                                      
+>           isStructural _           = False
 
 > trans' :: EPat -> State TState Pat
-> trans' epat 
+> trans' epat
 >      | hasGroup epat = p_trans epat
->      | otherwise     = do 
+>      | otherwise     = do
 >                 { r <- r_trans epat
 >                 ; return (PE r)
 >                 }
@@ -162,17 +162,17 @@ getters and putters
 > {-
 > trans :: EPat -> State TState Pat
 > trans epat | hasGroup epat = p_trans epat
->            | otherwise     = 
->                do 
->                { is_posix <- isPosix 
->                ; if is_posix 
->                  then do 
+>            | otherwise     =
+>                do
+>                { is_posix <- isPosix
+>                ; if is_posix
+>                  then do
 >                       { gi <- getIncGI
 >                       ; r <- r_trans epat
 >                       ; addPosixBinder gi
 >                       ; return (PVar gi [] (PE r))
 >                       }
->                  else do 
+>                  else do
 >                    { r <- r_trans epat
 >                    ; return (PE r)
 >                    }
@@ -187,7 +187,7 @@ getters and putters
 > x,y,z are group indices
 > -}
 > p_trans :: EPat -> State TState Pat
-> p_trans epat = 
+> p_trans epat =
 >     case epat of
 >       -- () ~>_p ()
 >     { EEmpty ->
@@ -207,11 +207,11 @@ getters and putters
 >       {-
 >         e ~> p
 >         -----------------
->         (? e ) ~>_p p 
+>         (? e ) ~>_p p
 >        -}
->     ; EGroupNonMarking e -> 
+>     ; EGroupNonMarking e ->
 >         trans' e
->     ; EOr es -> 
+>     ; EOr es ->
 >         {-
 >           e1 ~> p1  e2 ~> p2
 >           -------------------
@@ -219,26 +219,26 @@ getters and putters
 >          -}
 >       do { ps <- mapM trans es
 >          ; case ps of
->            { (p':ps') -> 
+>            { (p':ps') ->
 >               return (foldl (\xs x -> PChoice xs x Greedy) p' ps')
 >            ; [] -> error "an empty choice enountered." -- todo : capture the error in the monad state
 >            }
 >          }
 >     ; EConcat es ->
->         {- 
+>         {-
 >            e1 ~> p1  e2 ~> p2
 >            ---------------------
 >              (e1,e2) ~>_p (p1,p2)
->          -} 
+>          -}
 >         do { ps <- mapM trans es
 >            ; case reverse ps of  -- to make sure it is right assoc
->              { (p':ps') -> 
+>              { (p':ps') ->
 >                    return (foldl (\xs x -> PPair x xs) p' ps')
 >              ; [] -> error "an empty sequence enountered." -- todo : capture the error in the moand state
 >              }
 >            }
 >     ; EOpt e b ->
->       {- 
+>       {-
 >          todo : not sure whether this makes sense
 >            e ~> p
 >          -------------------
@@ -250,7 +250,7 @@ getters and putters
 >          ; return (PChoice p (PE Empty) g)
 >          }
 >     ; EPlus e b ->
->       {- 
+>       {-
 >            e ~> p
 >          -------------------
 >            p+ ~>_p (p,p*)
@@ -260,8 +260,8 @@ getters and putters
 >                  | otherwise = NotGreedy
 >          ; return (PPair p (PStar p g))
 >          }
->     ; EStar e b -> 
->       {- 
+>     ; EStar e b ->
+>       {-
 >            e ~> p
 >          -------------------
 >            e*~>_p p*
@@ -273,19 +273,19 @@ getters and putters
 >          }
 >     ; EBound e low (Just high) b ->
 >         {- we could have relax this rule to e ~> p
->             e ~>_r r  
+>             e ~>_r r
 >             r1 = take l (repeat r)
 >             r2 = take (h-l) (repeat r?)
 >             r' = (r1,r2)
 >           -------------------------------------
->             e{l,h} ~> a :: r' 
+>             e{l,h} ~> a :: r'
 >          -}
 >       do { r <- r_trans e
 >          ; i <- getIncNGI
 >          ; let g | b = Greedy
 >                  | otherwise = NotGreedy
 >                r1s = take low $ repeat r
->                r1 = case r1s of 
+>                r1 = case r1s of
 >                     { [] -> Empty
 >                     ; (r':rs') -> foldl (\ rs r -> Seq rs r) r' rs'
 >                     }
@@ -294,7 +294,7 @@ getters and putters
 >                     { [] -> Empty
 >                     ; (r':rs') -> foldl (\ rs r -> Seq rs r) r' rs'
 >                     }
->                r3 = case (r1,r2) of 
+>                r3 = case (r1,r2) of
 >                       (Empty, Empty) -> Empty
 >                       (Empty, _    ) -> r2
 >                       (_    , Empty) -> r1
@@ -304,18 +304,18 @@ getters and putters
 >          }
 >     ; EBound e low Nothing b ->
 >         {-
->             e ~>_r r  
+>             e ~>_r r
 >             r1 = take l (repeat r)
 >             r' = (r1,r*)
 >           -------------------------------------
->             e{l,} ~> a :: r' 
+>             e{l,} ~> a :: r'
 >          -}
 >       do { r <- r_trans e
 >          ; i <- getIncNGI
 >          ; let g | b = Greedy
 >                  | otherwise = NotGreedy
 >                r1s = take low $ repeat r
->                r1 = case r1s of 
+>                r1 = case r1s of
 >                     { [] -> Empty
 >                     ; (r':rs') -> foldl (\ rs r -> Seq rs r) r' rs'
 >                     }
@@ -323,12 +323,12 @@ getters and putters
 >                p = PVar i [] (PE r2)
 >          ; return p
 >          }
->     ; ECarat -> 
->       -- currently we anchor the entire expression 
+>     ; ECarat ->
+>       -- currently we anchor the entire expression
 >       -- regardless of where ^ appears, we turn the subsequent
 >       -- ECarat into literal,
 >       do { f <- getAnchorStart
->          ; if f 
+>          ; if f
 >            then do { i <- getIncNGI -- not the first carat
 >                    ; let r = L '^'
 >                          p = PVar i [] (PE r)
@@ -341,7 +341,7 @@ getters and putters
 >                    ; return p
 >                    }
 >          }
->     ; EDollar -> 
+>     ; EDollar ->
 >           -- similar to carat, except that we will not treat
 >           -- the subsequent EDollar as literal.
 >       do { f <- getAnchorEnd
@@ -353,8 +353,8 @@ getters and putters
 >                p = PVar i [] (PE r)
 >          ; return p
 >          }
->     ; EDot -> 
->         --  . ~> a :: \Sigma 
+>     ; EDot ->
+>         --  . ~> a :: \Sigma
 >         -- we might not need this rule
 >       do { i <- getIncNGI
 >          ; let r = Any
@@ -362,7 +362,7 @@ getters and putters
 >          ; return p
 >         }
 >     ; EAny cs ->
->         -- [ abc ] ~> a :: 'a'|'b'|'c' 
+>         -- [ abc ] ~> a :: 'a'|'b'|'c'
 >         -- we might not need this rule
 >       do { i <- getIncNGI
 >          ; let r = char_list_to_re cs
@@ -371,7 +371,7 @@ getters and putters
 >          ; return p
 >          }
 >     ; ENoneOf cs ->
->         -- [^ abc] ~> a :: \Sigma - 'a'|'b'|'c' 
+>         -- [^ abc] ~> a :: \Sigma - 'a'|'b'|'c'
 >         -- we might not need this rule
 >       do { i <- getIncNGI
 >          ; let -- r = char_list_to_re (filter (\c -> not (c `elem` cs )) sigma)
@@ -380,11 +380,11 @@ getters and putters
 >          ; return p
 >          }
 >     ; EEscape c ->
->         -- \\c ~> a :: L c 
+>         -- \\c ~> a :: L c
 >         -- we might not need this rule
->       do { i <- getIncNGI 
+>       do { i <- getIncNGI
 >          ; let p = PVar i [] (PE (L c))
->          ; return p 
+>          ; return p
 >          }
 >     ; EChar c ->
 >         -- c ~> a :: L c
@@ -412,9 +412,9 @@ e ~>_r r
 
 
 > r_trans :: EPat -> State TState RE
-> r_trans e = 
->     case e of 
->     { EEmpty -> 
+> r_trans e =
+>     case e of
+>     { EEmpty ->
 >       {-
 >         () ~>_r ()
 >        -}
@@ -457,7 +457,7 @@ e ~>_r r
 >            ; (r:rs) -> return (foldl (\ xs x -> Seq xs x) r rs)
 >            }
 >          }
->     ; EOpt e b -> 
+>     ; EOpt e b ->
 >       {-
 >           e ~>_r r
 >         -----------
@@ -468,7 +468,7 @@ e ~>_r r
 >                  | otherwise = NotGreedy
 >          ; return (Choice r Empty g)
 >          }
->     ; EPlus e b -> 
+>     ; EPlus e b ->
 >       {-
 >         e ~>_r r
 >         ---------------
@@ -479,7 +479,7 @@ e ~>_r r
 >                  | otherwise = NotGreedy
 >          ; return (Seq r (Star r g))
 >          }
->     ; EStar e b -> 
+>     ; EStar e b ->
 >       {-
 >         e ~>_r r
 >         ----------------
@@ -495,7 +495,7 @@ e ~>_r r
 >         e ~>_r r
 >         r1 = take l (repeat r)
 >         r2 = take (h-l) (repeat r?)
->         r' = (r1,r2)         
+>         r' = (r1,r2)
 >         -----------------
 >           e{l:h} => r'
 >        -}
@@ -519,37 +519,37 @@ e ~>_r r
 >                       (_    , _    ) -> Seq r1 r2
 >          ; return r3
 >          }
->     ; EBound e low Nothing b -> 
+>     ; EBound e low Nothing b ->
 >         {-
->             e ~>_r r  
+>             e ~>_r r
 >             r1 = take l (repeat r)
 >             r' = (r1,r*)
 >           -------------------------------------
->             e{l,} => r' 
+>             e{l,} => r'
 >          -}
 >       do { r <- r_trans e
 >          ; let g | b = Greedy
 >                  | otherwise = NotGreedy
 >                r1s = take low $ repeat r
->                r1 = case r1s of 
+>                r1 = case r1s of
 >                     { [] -> Empty
 >                     ; (r':rs') -> foldl (\ rs r -> Seq rs r) r' rs'
 >                     }
 >                r2 = Seq r1 (Star r g)
 >          ; return r2
 >          }
->     ; ECarat -> 
->       -- currently we anchor the entire expression 
+>     ; ECarat ->
+>       -- currently we anchor the entire expression
 >       -- regardless of where ^ appears, we turn the subsequent
 >       -- ECarat into literal,
 >       do { f <- getAnchorStart
->          ; if f 
+>          ; if f
 >            then return (L '^') -- not the first carat
 >            else do { setAnchorStart -- the first carat
 >                    ; return Empty
 >                    }
 >          }
->     ; EDollar -> 
+>     ; EDollar ->
 >           -- similar to carat, except that we will not treat
 >           -- the subsequent EDollar as literal.
 >       do { f <- getAnchorEnd
@@ -558,7 +558,7 @@ e ~>_r r
 >            else setAnchorEnd
 >          ; return Empty
 >          }
->     ; EDot -> 
+>     ; EDot ->
 >         --  . ~>_r \Sigma
 >         -- return anychar
 >         return Any
@@ -576,5 +576,4 @@ e ~>_r r
 >         --  c ~>_r c
 >         return $ L c
 >     }
->           
-
+>

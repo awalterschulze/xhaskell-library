@@ -2,7 +2,7 @@
 
 
 
-> {-# LANGUAGE GADTs, BangPatterns #-} 
+> {-# LANGUAGE GADTs, BangPatterns #-}
 
 --------------------------------------------------------------------------------
 -- Regular Expression Pattern Matching via Glushkov automata (Position based)
@@ -11,7 +11,7 @@
 > module Main where
 
 > import Monad
-> import List 
+> import List
 > import Data.Bits
 > import Char (ord)
 > import GHC.IO
@@ -27,7 +27,7 @@
 > data RE where
 >   Phi :: RE                      -- empty language
 >   Empty :: RE                    -- empty word
->   L :: Char -> Int -> RE                -- single letter with a position number 
+>   L :: Char -> Int -> RE                -- single letter with a position number
 >   Choice :: RE  -> RE  -> RE     -- r1 + r2
 >   Seq :: RE  -> RE  -> RE        -- (r1,r2)
 >   Star :: RE  -> RE              -- r*
@@ -62,13 +62,13 @@ Pretty printing of regular expressions
 
 annotate add position info to the regex
 
-> newtype State s a = State { runState :: (s -> (a,s)) } 
- 
+> newtype State s a = State { runState :: (s -> (a,s)) }
+
 > instance Monad (State s) where
 >    -- return :: a -> State s a
 >    return a        = State (\s -> (a,s))
 >    -- (>>=) :: State s a -> (a -> State s b) -> State s b
->    (State x) >>= f = State (\s -> let (a,s') = x s 
+>    (State x) >>= f = State (\s -> let (a,s') = x s
 >                                       stb = f a
 >                                   in (runState stb) s')
 
@@ -79,8 +79,8 @@ annotate add position info to the regex
 > data Env = Env { cnt :: Int
 >                } deriving Show
 
-> initEnv :: Env 
-> initEnv = Env 0 
+> initEnv :: Env
+> initEnv = Env 0
 
 > nextCounter :: State Env Int
 > nextCounter = State (\env -> let c = (cnt env) + 1
@@ -92,28 +92,28 @@ annotate a regex with position index
 
 > rAnnotate :: RE -> RE
 > rAnnotate r = case run initEnv (rAnn r) of
->              { (r', _ ) -> r' }  
+>              { (r', _ ) -> r' }
 
 > rAnn :: RE -> State Env RE
 > rAnn Phi = return Phi
 > rAnn Empty = return Empty
-> rAnn (Choice r1 r2) = 
+> rAnn (Choice r1 r2) =
 >   do { r1' <- rAnn r1
 >      ; r2' <- rAnn r2
 >      ; return (Choice r1' r2') }
-> rAnn (Seq r1 r2) = 
+> rAnn (Seq r1 r2) =
 >   do { r1' <- rAnn r1
 >      ; r2' <- rAnn r2
 >      ; return (Seq r1' r2') }
-> rAnn (Star r) = 
->   do { r' <- rAnn r                
+> rAnn (Star r) =
+>   do { r' <- rAnn r
 >      ; return (Star r') }
-> rAnn (L c _) = 
->   do { i <- nextCounter       
+> rAnn (L c _) =
+>   do { i <- nextCounter
 >      ; return (L c i) }
 
 
-> rFirst :: RE -> [(Char, Int)] 
+> rFirst :: RE -> [(Char, Int)]
 > rFirst Phi = []
 > rFirst Empty = []
 > rFirst (L c i) = [(c,i)]
@@ -121,7 +121,7 @@ annotate a regex with position index
 > rFirst (Choice r1 r2) = (rFirst r1) ++ (rFirst r2)
 > rFirst (Seq r1 r2) = if isEmpty r1 then (rFirst r1) ++ (rFirst r2) else rFirst r1
 
-> rLast :: RE -> [(Char, Int)] 
+> rLast :: RE -> [(Char, Int)]
 > rLast Phi = []
 > rLast Empty = []
 > rLast (L c i) = [(c,i)]
@@ -141,21 +141,21 @@ annotate a regex with position index
 > rPos Phi = []
 > rPos Empty = []
 > rPos (L _ i) = [i]
-> rPos (Choice r1 r2) = (rPos r1) ++ (rPos r2) 
+> rPos (Choice r1 r2) = (rPos r1) ++ (rPos r2)
 > rPos (Seq r1 r2) = (rPos r1) ++ (rPos r2)
 > rPos (Star r) = rPos r
 
 > data NFA a l = NFA { states :: [a]
 >                    , initStates   :: [a]
 >                    , finalStates  :: [a]
->                    , delta  :: [(a,l,a)] 
+>                    , delta  :: [(a,l,a)]
 >                    } deriving Show
 
 
 > table :: Eq a => [(a,b)] -> [(a,[b])]
 > table ps = intern [] ps
 >   where intern t [] = t
->         intern t ((k,v):ps) = case lookup k t of 
+>         intern t ((k,v):ps) = case lookup k t of
 >                               { Nothing -> intern ((k,[v]):t) ps
 >                               ; Just vs -> intern (update k (vs++[v]) t) ps }
 >         update k v t = let t' = filter (\(k',_) -> not (k == k')) t
@@ -163,14 +163,14 @@ annotate a regex with position index
 
 
 > runNFA :: (Eq a, Eq l) => NFA a l -> [l] -> Bool
-> runNFA nfa w = 
+> runNFA nfa w =
 >    let xs = runIntern (initStates nfa) (table (map (\(f,s,t) -> ((f,s),t)) (delta nfa))) w
 >    in any (\x -> x `elem` finalStates nfa) xs
 >    where runIntern :: (Eq a, Eq l) => [a] -> [((a,l),[a])] -> [l] -> [a]
 >          runIntern currs _ [] = currs
->          runIntern currs dels (l:ls) = 
+>          runIntern currs dels (l:ls) =
 >            let nexts = concatMap (\a -> case lookup (a,l) dels of
->                                      { Nothing -> []                        
+>                                      { Nothing -> []
 >                                      ; Just b  -> b }) currs
 >            in nexts `seq` runIntern nexts dels ls
 
@@ -185,10 +185,10 @@ annotate a regex with position index
 
 
 > runGlushkov :: RE -> String -> Bool
-> runGlushkov r w = 
->    let r' = rAnnotate r   
->        nfa = rGlushkov r'          
->    in runNFA nfa w 
+> runGlushkov r w =
+>    let r' = rAnnotate r
+>        nfa = rGlushkov r'
+>    in runNFA nfa w
 
 
 label with default position 0
@@ -202,13 +202,13 @@ r1 = ((a|b)*,c)
 
 
 > data Pat where
->  PVar :: Int -> RE -> Pat 
->  PPair :: Pat -> Pat -> Pat  
->  PChoice :: Pat -> Pat -> Pat 
+>  PVar :: Int -> RE -> Pat
+>  PPair :: Pat -> Pat -> Pat
+>  PChoice :: Pat -> Pat -> Pat
 >   deriving Show
 
 
-> strip :: Pat -> RE 
+> strip :: Pat -> RE
 > strip (PVar _ r) = r
 > strip (PPair p1 p2) = Seq (strip p1) (strip p2)
 > strip (PChoice p1 p2) = Choice (strip p1) (strip p2)
@@ -223,7 +223,7 @@ extending annotate operation for patterns
 > pAnn (PVar v r) = do { r' <- rAnn r
 >                        ; return (PVar v r') }
 > pAnn (PPair p1 p2) = do { p1' <- pAnn p1
->                         ; p2' <- pAnn p2 
+>                         ; p2' <- pAnn p2
 >                         ; return (PPair p1' p2') }
 > pAnn (PChoice p1 p2) = do { p1' <- pAnn p1
 >                           ; p2' <- pAnn p2
@@ -249,7 +249,7 @@ we also introduce the pattern variable updated into the result of the follow ope
 
 > pFollow :: Pat -> [(Int, Char, Int, Int)]
 > pFollow (PVar v r) = [ (p, c, q, v) | (p, c, q) <- rFollow r ]
-> pFollow (PPair p1 p2) = (pFollow p1) ++ (pFollow p2) 
+> pFollow (PPair p1 p2) = (pFollow p1) ++ (pFollow p2)
 >                         ++ [ (l,c,f,v) |  (_,l,_) <- pLast p1, (c,f,v) <- pFirst p2 ]
 > pFollow (PChoice p1 p2) = (pFollow p1) ++ (pFollow p2)
 
@@ -268,45 +268,45 @@ we need a different nfa because now the delta should keep track of which pattern
 > data NFA2 a l = NFA2 { states2 :: [a]
 >                    , initStates2   :: [a]
 >                    , finalStates2  :: [a]
->                    , delta2  :: [(a,l,a,Int)] 
+>                    , delta2  :: [(a,l,a,Int)]
 >                    } deriving Show
 
 > -- return a list of variable bindings
 > runNFA2 :: (Eq a, Eq l) => NFA2 a l -> [l] -> [[Int]]
-> runNFA2 nfa w = 
->    let xvs = runIntern (zip (initStates2 nfa) (repeat [])) 
+> runNFA2 nfa w =
+>    let xvs = runIntern (zip (initStates2 nfa) (repeat []))
 >               (table (map (\(f,s,t,v) -> ((f,s),(t,v))) (delta2 nfa))) w
 >    in map snd (filter (\(x,v) -> x `elem` finalStates2 nfa) xvs)
 >    where runIntern :: (Eq a, Eq l) => [(a,[Int])] -> [((a,l),[(a,Int)])] -> [l] -> [(a,[Int])]
 >          runIntern currs _ [] = currs
->          runIntern currs dels (l:ls) = 
+>          runIntern currs dels (l:ls) =
 >            let nexts = concatMap (\(a,vs) -> case lookup (a,l) dels of
->                                      { Nothing -> []                        
+>                                      { Nothing -> []
 >                                      ; Just bvs -> map (\(b,v) -> (b, (vs++[v]))) bvs }) currs
 >            in nexts `seq` runIntern nexts dels ls
-> 
+>
 
 > pGlushkov :: Pat -> NFA2 Int Char
 > pGlushkov p = let p' = pAnnotate p
 >               in NFA2{ states2 = 0:(pPos p')
 >                     , initStates2 = [0]
 >                     , finalStates2 = if isEmpty (strip p) then 0:(map snd2 (pLast p')) else (map snd2 (pLast p'))
->                     , delta2 = [ (0, c, f, v) | (c,f,v) <- pFirst p']  ++ (pFollow p') 
+>                     , delta2 = [ (0, c, f, v) | (c,f,v) <- pFirst p']  ++ (pFollow p')
 >                     }
 
 
 
 > patMatchGlushkov :: Pat -> String -> [(Int,String)]
-> patMatchGlushkov p w = 
+> patMatchGlushkov p w =
 >    let p' = pAnnotate p
->        nfa = pGlushkov p'         
+>        nfa = pGlushkov p'
 >        matches = runNFA2 nfa w
->    in case matches of 
+>    in case matches of
 >       { [] -> [] -- no match
 >       ; (m:_) -> IM.toList (collect m w IM.empty) }
 >    where collect :: [Int] -> String -> IM.IntMap String -> IM.IntMap String
 >          collect [] _ m = m
->          collect (i:is) (c:cs) m = 
+>          collect (i:is) (c:cs) m =
 >                  case IM.lookup i m of
 >                      { Just r ->  collect is cs (IM.update (\_ -> Just (r++[c])) i m )
 >                      ; Nothing -> collect is cs (IM.insert i [c] m) }
@@ -322,7 +322,7 @@ we need a different nfa because now the delta should keep track of which pattern
 
 
 
-Ungreedy match can be easily adopted in Glushkov 
+Ungreedy match can be easily adopted in Glushkov
 
 e.g. consider p = ( x :: a1 * ?, y :: a2 * ) where 1 and 2 are position tags.
 
@@ -330,19 +330,18 @@ first p = [ ( 'a', 1, x) ,  ('a', 2, y) ]
 
 last p  = [ ('a', 1, x), ('a', 2, y) ]
 
-follow p = (follow (x :: a1*?)) ++ (follow  (y :: a2*)) ++ 
+follow p = (follow (x :: a1*?)) ++ (follow  (y :: a2*)) ++
         [ (p1,c2,p2,v2) | (c1,p1,v1) <- last (x :: a1*?), (c2,p2,v2) <- first (y :: a2*) ]
-         = [ (p, c, p',x) |  (p, c, p') <- follow (a1*?) ] ++ 
-           [ (p, c, p',y) |  (p, c, p') <- follow (a2*) ] ++ 
+         = [ (p, c, p',x) |  (p, c, p') <- follow (a1*?) ] ++
+           [ (p, c, p',y) |  (p, c, p') <- follow (a2*) ] ++
         [ (p1,c2,p2,v2) | (c1,p1,v1) <- last (x :: a1*?), (c2,p2,v2) <- first (y :: a2*) ]
          = [ (1,'a',1,x) ] ++ [ (2,'a',2,y) ] ++ [ (p1,c2,p2,v2) | (c1,p1,v1) <- [('a',1,x)], (c2,p2,v2) <- [('a',2,y)] ]   -- (1)
-         = [ (1,'a',1,x) ] ++ [ (2,'a',2,y) ] ++ [ (1,'a',2',y) ] 
+         = [ (1,'a',1,x) ] ++ [ (2,'a',2,y) ] ++ [ (1,'a',2',y) ]
 Note that for (1) we have all the transitions. Assume during the matching, the transitions are 'tried' in the order
 of left to right. Hence (1,'a',1,x) is always tried before (1,'a',2',y), which leads to a greedy matching.
 
 On the other hand, if we swap [ (1,'a',1,x) ]  with  [ (1,'a',2',y) ]  we will have non-greedy matching
 
 hence for a non-greedy match, if a1 is non-greedy
-follow (q1,q2) =  [ (p1,c2,p2,v2) | (c1,p1,v1) <- last q1, (c2,p2,v2) <- first q2 ] 
+follow (q1,q2) =  [ (p1,c2,p2,v2) | (c1,p1,v1) <- last q1, (c2,p2,v2) <- first q2 ]
                ++ follow q1 ++ follow q2
-       

@@ -3,7 +3,7 @@
 
 > {- By Kenny Zhuo Ming Lu and Martin Sulzmann, 2009. BSD3 -}
 
-The parser that parse POSIX style regex syntax and translate it into our 
+The parser that parse POSIX style regex syntax and translate it into our
 internal pattern representation.
 This parser is largely adapted from Text.Regex.TDFA.ReadRegex
 
@@ -20,7 +20,7 @@ This parser is largely adapted from Text.Regex.TDFA.ReadRegex
 > import Text.Regex.PDeriv.ExtPattern (EPat(..))
 > import Text.Regex.PDeriv.IntPattern (Pat(..))
 > import Text.Regex.PDeriv.RE (RE(..))
-> import Text.Regex.PDeriv.Translate (translate, translatePosix) 
+> import Text.Regex.PDeriv.Translate (translate, translatePosix)
 
 > type EState = ()
 > initEState = ()
@@ -55,7 +55,7 @@ posix pattern parsing: we need to add binders everywhere
 > p_branch = liftM EConcat $ many1 p_exp
 
 > p_exp = (p_anchor <|> p_atom) >>= p_post_anchor_or_atom
->         
+>
 > p_anchor = ((char '^') >> (return ECarat))       -- '^'
 >            <|>
 >            ((char '$') >> (return EDollar))      -- '$'
@@ -70,16 +70,16 @@ todo '{'
 
  p_group = liftM EGroup $ between (char '(') (char ')') p_ere
 
-> p_group = 
->     between (char '(') (char ')') 
->                 ( try 
->                   ( do  
->                     { -- non marking group 
->                     ; (char '?') 
+> p_group =
+>     between (char '(') (char ')')
+>                 ( try
+>                   ( do
+>                     { -- non marking group
+>                     ; (char '?')
 >                     ; (char ':')
 >                     ; x <- p_ere
 >                     ; return (EGroupNonMarking x)
->                     } 
+>                     }
 >                   )
 >                  <|>
 >                  liftM EGroup p_ere
@@ -89,18 +89,18 @@ todo '{'
 
 parsing [ ... ] and [^ ... ]
 
-> p_charclass = 
->     (char '[') 
->     >> ( do { char '^' 
+> p_charclass =
+>     (char '[')
+>     >> ( do { char '^'
 >             ; liftM ENoneOf $ p_enum -- enum ends with ']'
->             } 
+>             }
 >          <|>
 >          (liftM EAny $ p_enum)
 >        )
 
 > p_enum :: CharParser EState [Char]
-> p_enum = do { initial <- (option "" ((char ']' >> return "]") <|> (char '-' >> return "-"))) 
->               -- todo : why do we need this here? 
+> p_enum = do { initial <- (option "" ((char ']' >> return "]") <|> (char '-' >> return "-")))
+>               -- todo : why do we need this here?
 >               -- answer: if not, this string can't be parsed "[]f-z]", which is any char of  ']' and  between 'f' to 'z'
 >             ; chars <- many1 p_one_enum
 >             ; char ']'
@@ -110,16 +110,16 @@ parsing [ ... ] and [^ ... ]
 
 todo: support the locale collating char class [: :] [= =] [. .]
 
-> p_one_enum = p_range <|> p_char_set 
+> p_one_enum = p_range <|> p_char_set
 
-> p_range = try $ do  
+> p_range = try $ do
 >           { start <- (try p_esc_char_) <|> noneOf "]-"
 >           ; char '-'
 >           ; end <- (try p_esc_char_) <|> noneOf "]"
->           ; return [ start .. end ] 
+>           ; return [ start .. end ]
 >           }
 
-> p_char_set = do 
+> p_char_set = do
 >   { c <- (try p_esc_char_) <|> noneOf "]" -- <|> (char '\\' >> p_special_char)
 >   ; when (c == '-') $
 >     do -- when it is a dash, it must be at the end of the [..]
@@ -141,23 +141,23 @@ parse the escaped chars
 
 oct ascii, e.g. \000
 
-> p_return = do 
+> p_return = do
 >            { char 'r'
 >            ; return '\r'
 >            }
 
-> p_newline = do 
+> p_newline = do
 >             { char 'n'
 >             ; return '\n'
 >             }
 
-> p_tab = do 
+> p_tab = do
 >         { char 't'
 >         ; return '\t'
 >         }
 
 
-> p_oct_ascii = do  
+> p_oct_ascii = do
 >               { d1 <- digit
 >               ; d2 <- digit
 >               ; d3 <- digit
@@ -175,12 +175,12 @@ parse a single non-escaped char
 > p_special_char = oneOf specials
 
 
-> p_post_anchor_or_atom atom = 
+> p_post_anchor_or_atom atom =
 >     (try (char '?' >> char '?' >> return (EOpt atom False)) <|> (char '?' >> return (EOpt atom True)))
 >     <|> (try (char '+' >> char '?' >> return (EPlus atom False)) <|> (char '+' >> return (EPlus atom True)))
 >     <|> (try (char '*' >> char '?' >> return (EStar atom False)) <|> (char '*' >> return (EStar atom True)))
 >     <|> p_bound_nongreedy atom
->     <|> p_bound atom 
+>     <|> p_bound atom
 >     <|> return atom
 
 
@@ -190,7 +190,7 @@ parse a single non-escaped char
 
 > p_bound_spec atom b = do { lowS <- many1 digit
 >                         ; let lowI = read lowS
->                         ; highMI <- option (Just lowI) $ try $ 
+>                         ; highMI <- option (Just lowI) $ try $
 >                           do { char ','
 >  -- parsec note: if 'many digits' fails below then the 'try' ensures
 >  -- that the ',' will not match the closing '}' in p_bound, same goes
@@ -204,6 +204,3 @@ parse a single non-escaped char
 >                              }
 >                         ; return (EBound atom lowI highMI b)
 >                         }
-
-
-

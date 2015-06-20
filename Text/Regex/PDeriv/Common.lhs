@@ -1,6 +1,6 @@
 > {-# LANGUAGE BangPatterns #-}
 > -- | this module contains the defs of common data types and type classes
-> module Text.Regex.PDeriv.Common 
+> module Text.Regex.PDeriv.Common
 >     ( Range(..), range, minRange, maxRange
 >     , Letter
 >     , PosEpsilon (..)
@@ -25,7 +25,7 @@
 > import Data.List (nubBy)
 
 > -- | (sub)words represent by range
-> -- type Range  = (Int,Int)      
+> -- type Range  = (Int,Int)
 > data Range = Range !Int !Int deriving Show
 
 > instance Eq Range where
@@ -38,7 +38,7 @@
 > maxRange = snd
 
 > -- | a character and its index (position)
-> type Letter = (Char,Int)     
+> type Letter = (Char,Int)
 
 > -- | test for 'epsilon \in a' epsilon-possession
 > class PosEpsilon a where
@@ -91,26 +91,26 @@ the lookup function
 
 
 > nub2sub im [] = []
-> nub2sub im (x@(k,_):xs) = 
-> --    im `seq` k `seq` 
+> nub2sub im (x@(k,_):xs) =
+> --    im `seq` k `seq`
 >            case IM.lookup k im of
 >            Just _  -> xs `seq` nub2sub im xs
->            Nothing -> let im' = IM.insert k () im 
+>            Nothing -> let im' = IM.insert k () im
 >                       in im' `seq` xs `seq` x:(nub2sub im' xs)
 
 > {-
 > nub2sub im [] = []
-> nub2sub im (x@(k,_):xs) = 
-> --    im `seq` k `seq` 
+> nub2sub im (x@(k,_):xs) =
+> --    im `seq` k `seq`
 >            if not (IM.notMember k im)
 >            then xs `seq` nub2sub im xs
->            else let im' = IM.insert k () im 
+>            else let im' = IM.insert k () im
 >                 in im' `seq` xs `seq` x:(nub2sub im' xs)
 > -}
 
-> nub2aux bs [] acc = reverse acc 
-> nub2aux bs (x@(k,_):xs) acc = 
->     case bs `seq` k `seq` BS.member k bs of 
+> nub2aux bs [] acc = reverse acc
+> nub2aux bs (x@(k,_):xs) acc =
+>     case bs `seq` k `seq` BS.member k bs of
 >       True  -> xs `seq` nub2aux bs xs acc
 >       False -> let bs' = BS.insert k bs
 >                in bs' `seq` xs `seq` (nub2aux bs' xs (x:acc))
@@ -130,7 +130,7 @@ the lookup function
 > nub3subsimple im (x@(k,f,0):xs) = x:(nub3subsimple im xs)
 > nub3subsimple im (x@(k,f,1):xs) = let im' = IM.insert k () im
 >                                   in im' `seq` x:(nub3subsimple im' xs)
-> nub3subsimple im (x@(k,f,n):xs) = case IM.lookup k im of 
+> nub3subsimple im (x@(k,f,n):xs) = case IM.lookup k im of
 >                                   Just _ -> nub3subsimple im xs
 >                                   Nothing -> let im' = IM.insert k () im
 >                                              in im' `seq` xs `seq` x:(nub3subsimple im' xs)
@@ -146,10 +146,10 @@ the lookup function
 > nub3sub im (x@(k,f,1):xs) = let im' = IM.insert k () im
 >                                 (im'', xs') = nub3sub im' xs
 >                             in (im'', x:xs')
-> nub3sub im (x@(k,f,n):xs) = case IM.lookup k im of 
+> nub3sub im (x@(k,f,n):xs) = case IM.lookup k im of
 >                               Just _ -> nub3sub im xs
 >                               Nothing -> let (im', xs') = nub3sub im xs
->                                          in case IM.lookup k im' of 
+>                                          in case IM.lookup k im' of
 >                                               Just _ -> (im', xs')
 >                                               Nothing -> (im', x:xs')
 

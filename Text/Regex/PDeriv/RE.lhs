@@ -1,6 +1,6 @@
 
 > {-# LANGUAGE GADTs, MultiParamTypeClasses, FunctionalDependencies,
->     FlexibleInstances, TypeSynonymInstances, FlexibleContexts #-} 
+>     FlexibleInstances, TypeSynonymInstances, FlexibleContexts #-}
 
 > module Text.Regex.PDeriv.RE where
 
@@ -13,7 +13,7 @@
 ------------------------
 
 > -- | data type of the regular expresions
-> data RE = Phi 
+> data RE = Phi
 >  | Empty        -- ^ an empty exp
 >  | L Char	  -- ^ a literal / a character
 >  | Choice RE RE GFlag -- ^ a choice exp 'r1 + r2'
@@ -26,11 +26,11 @@
 > instance Eq RE where
 >     (==) Empty Empty = True
 >     (==) (L x) (L y) = x == y
->     (==) (Choice r1 r2 g1) (Choice r3 r4 g2) = (g1 == g2) && (r2 == r4) && (r1 == r3) 
+>     (==) (Choice r1 r2 g1) (Choice r3 r4 g2) = (g1 == g2) && (r2 == r4) && (r1 == r3)
 >     (==) (Seq r1 r2) (Seq r3 r4) = (r1 == r3) && (r2 == r4)
->     (==) (Star r1 g1) (Star r2 g2) = g1 == g2 && r1 == r2 
+>     (==) (Star r1 g1) (Star r2 g2) = g1 == g2 && r1 == r2
 >     (==) Any Any = True
->     (==) (Not cs) (Not cs') = cs == cs' 
+>     (==) (Not cs) (Not cs') = cs == cs'
 >     (==) _ _ = False
 
 
@@ -95,7 +95,7 @@
 >   posEpsilon (L _) = False
 >   posEpsilon Any = False
 >   posEpsilon (Not _) = False
-        
+
 
 > -- | function 'isEpsilon' checks whether epsilon = r
 > instance IsEpsilon RE where
@@ -122,35 +122,35 @@
 > -- | function 'partDeriv' implements the partial derivative operations for regular expressions. We don't pay attention to the greediness flag here.
 > partDeriv :: RE -> Char -> [RE]
 > partDeriv r l = let pds = (partDerivSub r l)
->                 in {-# SCC "nub_pd" #-} nub pds                                                  
+>                 in {-# SCC "nub_pd" #-} nub pds
 
 
 > partDerivSub Phi l = []
 > partDerivSub Empty l = []
-> partDerivSub (L l') l 
+> partDerivSub (L l') l
 >     | l == l'   = [Empty]
 >     | otherwise = []
 > partDerivSub Any l = [Empty]
-> partDerivSub (Not cs) l 
+> partDerivSub (Not cs) l
 >     | l `elem` cs = []
 >     | otherwise = [Empty]
-> partDerivSub (Choice r1 r2 g) l = 
->     let 
->         s1 = partDerivSub r1 l 
+> partDerivSub (Choice r1 r2 g) l =
+>     let
+>         s1 = partDerivSub r1 l
 >         s2 = partDerivSub r2 l
 >     in s1 `seq` s2 `seq` (s1 ++ s2)
-> partDerivSub (Seq r1 r2) l 
->     | posEpsilon r1 = 
->           let 
+> partDerivSub (Seq r1 r2) l
+>     | posEpsilon r1 =
+>           let
 >               s0 = partDerivSub r1 l
 >               s1 = s0 `seq` [ (Seq r1' r2) | r1' <- s0 ]
 >               s2 = partDerivSub r2 l
 >           in s1 `seq` s2 `seq` (s1 ++ s2)
->     | otherwise = 
->         let 
->             s0 = partDerivSub r1 l 
+>     | otherwise =
+>         let
+>             s0 = partDerivSub r1 l
 >         in s0 `seq` [ (Seq r1' r2) | r1' <- s0 ]
-> partDerivSub (Star r g) l = 
+> partDerivSub (Star r g) l =
 >     let
 >         s0 = partDerivSub r l
 >     in s0 `seq` [ (Seq r' (Star r g)) | r' <- s0 ]
@@ -163,8 +163,8 @@
 > sigmaREsub (L l) = [l]
 > sigmaREsub Any = map chr [32 .. 127]
 > sigmaREsub (Not cs) = filter (\c -> not (c `elem` cs)) (map chr [32 .. 127])
-> sigmaREsub (Seq r1 r2) = (sigmaREsub r1) ++ (sigmaREsub r2) 
-> sigmaREsub (Choice r1 r2 g) = (sigmaREsub r1) ++ (sigmaREsub r2) 
+> sigmaREsub (Seq r1 r2) = (sigmaREsub r1) ++ (sigmaREsub r2)
+> sigmaREsub (Choice r1 r2 g) = (sigmaREsub r1) ++ (sigmaREsub r2)
 > sigmaREsub (Star r g) = sigmaREsub r
 > sigmaREsub Phi = []
 > sigmaREsub Empty = []
@@ -173,7 +173,7 @@
 >     simplify (L l) = L l
 >     simplify Any   = Any
 >     simplify (Not cs) = Not cs
->     simplify (Seq r1 r2) = 
+>     simplify (Seq r1 r2) =
 >         let r1' = simplify r1
 >             r2' = simplify r2
 >         in if isEpsilon r1'
@@ -181,7 +181,7 @@
 >            else if isEpsilon r2'
 >                 then r1'
 >                 else Seq r1' r2'
->     simplify (Choice r1 r2 g) = 
+>     simplify (Choice r1 r2 g) =
 >         let r1' = simplify r1
 >             r2' = simplify r2
 >         in if isPhi r1'

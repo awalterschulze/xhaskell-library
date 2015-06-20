@@ -2,7 +2,7 @@
 
 
 
-> {-# LANGUAGE GADTs, BangPatterns #-} 
+> {-# LANGUAGE GADTs, BangPatterns #-}
 
 --------------------------------------------------------------------------------
 -- Regular Expression Pattern Matching via Derivatives
@@ -11,7 +11,7 @@
 > module Main where
 
 > import Control.Monad
-> import Data.List 
+> import Data.List
 > import Data.Bits
 > import Data.Char (ord)
 > import GHC.IOBase
@@ -26,7 +26,7 @@
 > data RE where
 >   Phi :: RE                      -- empty language
 >   Empty :: RE                    -- empty word
->   L :: Char -> RE                -- single letter 
+>   L :: Char -> RE                -- single letter
 >   Choice :: RE  -> RE  -> RE     -- r1 + r2
 >   Seq :: RE  -> RE  -> RE        -- (r1,r2)
 >   Star :: RE  -> RE              -- r*
@@ -75,12 +75,12 @@ Pretty printing of regular expressions
 > partDeriv :: RE -> Char -> [RE]
 > partDeriv Phi l = []
 > partDeriv Empty l = []
-> partDeriv (L l') l 
+> partDeriv (L l') l
 >     | l == l'   = [Empty]
 >     | otherwise = []
 > partDeriv (Choice r1 r2) l = nub ((partDeriv r1 l) ++ (partDeriv r2 l))
-> partDeriv (Seq r1 r2) l 
->     | isEmpty r1 = 
+> partDeriv (Seq r1 r2) l
+>     | isEmpty r1 =
 >           let s1 = [ (Seq r1' r2) | r1' <- partDeriv r1 l ]
 >               s2 = partDeriv r2 l
 >           in nub (s1 ++ s2)
@@ -91,16 +91,16 @@ Pretty printing of regular expressions
 > type Range  = (Int,Int)      -- (sub)words represent by range
 
 > data Pat where
->  PVar :: Int -> Maybe Range -> RE -> Pat 
->  PPair :: Pat -> Pat -> Pat  
->  PChoice :: Pat -> Pat -> Pat 
+>  PVar :: Int -> Maybe Range -> RE -> Pat
+>  PPair :: Pat -> Pat -> Pat
+>  PChoice :: Pat -> Pat -> Pat
 >  PEmpty :: Pat -> Pat       -- used internally to indicate
 >                             -- that mkEmpPat function has been applied
 >   deriving Show
 
 NOTE: We ignore the 'consumed word' when comparing patterns
       (ie we only compare the pattern structure).
-      Essential for later comparisons among patterns.      
+      Essential for later comparisons among patterns.
 
 > instance Eq Pat where
 >   (==) (PVar x1 _ r1) (PVar x2 _ r2) = (x1 == x2) && (r1 == r2)
@@ -115,7 +115,7 @@ NOTE: We ignore the 'consumed word' when comparing patterns
 > sigmaPat (PChoice p1 p2) = nub (sigmaPat p1 ++ sigmaPat p2)
 > sigmaPat (PEmpty p) = sigmaPat p
 
-> strip :: Pat -> RE 
+> strip :: Pat -> RE
 > strip (PVar _ w r) = r
 > strip (PPair p1 p2) = Seq (strip p1) (strip p2)
 > strip (PChoice p1 p2) = Choice (strip p1) (strip p2)
@@ -126,7 +126,7 @@ NOTE: We ignore the 'consumed word' when comparing patterns
 
 
 > mkEmpPat :: Pat -> Pat
-> mkEmpPat (PVar x w r) 
+> mkEmpPat (PVar x w r)
 >  | isEmpty r = PVar x w Empty
 >  | otherwise = PVar x w Phi
 > mkEmpPat (PPair p1 p2) = PPair (mkEmpPat p1) (mkEmpPat p2)
@@ -142,7 +142,7 @@ NOTE: We ignore the 'consumed word' when comparing patterns
 
 > -- Each char letter carries the character and the variable (int)
 > -- to which the character will be bound to.
-> data Letter = Ch Char Int | Epsilon deriving Eq 
+> data Letter = Ch Char Int | Epsilon deriving Eq
 
 > instance Show Letter where
 >    show Epsilon = "eps"
@@ -181,7 +181,7 @@ NOTE: We ignore the 'consumed word' when comparing patterns
 
 
 > re :: State -> Var -> RE -> (NFA, State)
-> re (State cnt) var (L c) = 
+> re (State cnt) var (L c) =
 >   let s1 = State cnt
 >       s2 = State (cnt+1)
 >       envFn = \ curpos -> \ env ->
@@ -191,14 +191,14 @@ NOTE: We ignore the 'consumed word' when comparing patterns
 >                            Nothing -> (var, Just (curpos,curpos))
 >                            Just (i,j) -> (var, Just (i,j+1))
 >                            -- append to the back in case of left-to-right
->                       else (y,w) ) env 
+>                       else (y,w) ) env
 >       Var v = var
 >       delta = (s1,Ch c v,envFn,s2)
 >   in (NFA { initial = s1,
 >             final = [s2],
 >             deltas = [delta] },
 >       State $ cnt+2)
-> 
+>
 > re cnt var (Choice r1 r2) =
 >   let (nfa1, cnt2) = re cnt var r1
 >       (nfa2, cnt3) = re cnt2 var r2
@@ -209,7 +209,7 @@ NOTE: We ignore the 'consumed word' when comparing patterns
 >             (start,Epsilon,idBnd,initial nfa2)]
 >       fs = final nfa1 ++ final nfa2
 >   in (NFA {initial = start, final = fs, deltas = ds},
->       State ((unState start)+1) ) 
+>       State ((unState start)+1) )
 >
 > re cnt var (Seq r1 r2) =
 >   let (nfa1, cnt2) = re cnt var r1
@@ -220,9 +220,9 @@ NOTE: We ignore the 'consumed word' when comparing patterns
 >            map (\f -> (f, Epsilon, idBnd, initial nfa2)) (final nfa1)
 >       fs = final nfa2
 >   in (NFA {initial = start, final = fs, deltas = ds},
->       cnt3 ) 
-> 
-> re cnt var (Star r) = 
+>       cnt3 )
+>
+> re cnt var (Star r) =
 >   let (nfa, cnt2) = re cnt var r
 >       start = cnt2
 >       ds = deltas nfa ++
@@ -230,11 +230,11 @@ NOTE: We ignore the 'consumed word' when comparing patterns
 >            map (\f -> (f, Epsilon, idBnd, start)) (final nfa)
 >       fs = [start]
 >    in (NFA {initial = start, final = fs, deltas = ds},
->       State ((unState start)+1) )   
+>       State ((unState start)+1) )
 
 > pat :: State -> Pat -> (NFA, State)
 > pat cnt (PVar x _ r) = re cnt (Var x) r
-> 
+>
 > pat cnt (PChoice p1 p2) =
 >   let (nfa1, cnt2) = pat cnt p1
 >       (nfa2, cnt3) = pat cnt2 p2
@@ -245,7 +245,7 @@ NOTE: We ignore the 'consumed word' when comparing patterns
 >             (start,Epsilon,idBnd,initial nfa2)]
 >       fs = final nfa1 ++ final nfa2
 >   in (NFA {initial = start, final = fs, deltas = ds},
->       State ((unState start)+1) ) 
+>       State ((unState start)+1) )
 >
 > pat cnt (PPair p1 p2) =
 >   let (nfa1, cnt2) = pat cnt p1
@@ -256,7 +256,7 @@ NOTE: We ignore the 'consumed word' when comparing patterns
 >            map (\f -> (f, Epsilon, idBnd, initial nfa2)) (final nfa1)
 >       fs = final nfa2
 >   in (NFA {initial = start, final = fs, deltas = ds},
->       cnt3 ) 
+>       cnt3 )
 
 > data NFA = NFA { initial :: State
 >                , final :: [State]
@@ -273,47 +273,47 @@ NOTE: We ignore the 'consumed word' when comparing patterns
 >                                noOfTransitions :: Int}
 >                   deriving Show
 
-> measureNFA p = 
+> measureNFA p =
 >   let nfa = buildNFA p
 >   in NFAMeasure { noOfStates = length $
 >                                  nub $ concat $ map(\(s1,_,_,s2) ->
 >                                                        [s1,s2])
 >                                                 (deltas nfa),
 >                   noOfTransitions = length $ deltas nfa }
- 
+
 
 > nfaToDot nfa =
 >  unlines $ ["digraph G {"]
 >            ++ map (\(s1,l,_,s2) ->
->                       show s1 ++ " -> " ++ show s2 
+>                       show s1 ++ " -> " ++ show s2
 >                       ++ "[label=\"" ++ show l ++ "\"];")
 >                   (deltas nfa)
->            ++ [" 0 -> " ++ show (initial nfa) ++ ";",  
+>            ++ [" 0 -> " ++ show (initial nfa) ++ ";",
 >                "0 [shape = point];"]
 >            ++ map (\s -> show s ++ "[shape = circle];")
 >                   nonFinalStates
 >            ++ map (\s -> show s ++ "[shape = doublecircle];")
 >                   (final nfa)
->            ++ ["}"] 
+>            ++ ["}"]
 >  where
 >    nonFinalStates = filter (\s -> not $ elem s $ final nfa)
 >                            (nub $ concat $
 >                                     map (\(s1,_,_,s2) -> [s1,s2])
->                                         (deltas nfa)) 
+>                                         (deltas nfa))
 
 > check x p = (p x) `seq` x
 
-> imlookup nfa st ch = check 
+> imlookup nfa st ch = check
 >      [ (nextstate, bnd) | (st',l',bnd,nextstate) <- deltas nfa,
->                           st == st', 
+>                           st == st',
 >                           case l' of
 >                              Epsilon -> False
 >                              Ch ch' _ -> ch == ch' ]
 >      (\xs -> length xs == 1) -- in case of Thompson NFA
 
 > {-
-> closure nfa states = 
->  states ++ 
+> closure nfa states =
+>  states ++
 >  [ (s2,f)   |  (s, f) <- states,
 >                (s1,l,_,s2) <- deltas nfa,
 >                s1 == s, l == Epsilon ]
@@ -327,9 +327,9 @@ can there be cycles ???
 Version1: non-greedy, need to follow epsilon transitions depth-first
 
 > {-
-> closure nfa states = 
->   fixCl states 
->         ( \ sts -> 
+> closure nfa states =
+>   fixCl states
+>         ( \ sts ->
 >              [ (s2,f) | (s, f) <- sts,
 >                         (s1,l,_,s2) <- deltas nfa,
 >                         s1 == s, l == Epsilon ])
@@ -456,9 +456,9 @@ tests
 
 > p8 = PVar 1 em (Choice (L 'A') (L 'B'))
 
-> p9 = PVar 1 em (L 'A') 
+> p9 = PVar 1 em (L 'A')
 
-> p10 = PVar 1 em (Star (L 'A')) 
+> p10 = PVar 1 em (Star (L 'A'))
 
 > p11 = PPair p9 (PVar 2 em (Star (L 'A')))
 

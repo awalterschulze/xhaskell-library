@@ -12,8 +12,7 @@
 >            Left _ -> error " compilation failed . "
 >            Right r -> r
 
-> run s = regexec compiled s 
+> run s = regexec compiled s
 
 > main :: IO ()
 > main = do { putStrLn $ show (run input) }
-
