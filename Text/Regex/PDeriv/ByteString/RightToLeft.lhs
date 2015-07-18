@@ -37,6 +37,8 @@ is reached (AKA init state of the NFA) and the input word is fully consumed.
 > import Text.Regex.PDeriv.Parse
 > import qualified Text.Regex.PDeriv.Dictionary as D (Dictionary(..), Key(..), insertNotOverwrite, lookupAll, empty, isIn, nub)
 
+> import Prelude hiding (Word)
+
 A word is a byte string.
 
 > type Word = S.ByteString

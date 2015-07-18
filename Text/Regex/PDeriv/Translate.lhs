@@ -149,6 +149,7 @@ getters and putters
 >           isStructural (EOpt _ _)  = True
 >           isStructural (EPlus _ _) = True
 >           isStructural (EStar _ _) = True
+>           isStructural (EInterleave _) = True
 >           isStructural _           = False
 
 > trans' :: EPat -> State TState Pat
@@ -221,6 +222,19 @@ getters and putters
 >          ; case ps of
 >            { (p':ps') ->
 >               return (foldl (\xs x -> PChoice xs x Greedy) p' ps')
+>            ; [] -> error "an empty choice enountered." -- todo : capture the error in the monad state
+>            }
+>          }
+>     ; EInterleave es ->
+>         {-
+>           e1 ~> p1  e2 ~> p2
+>           -------------------
+>             e1&e2 ~>_p p1&p2
+>          -}
+>       do { ps <- mapM trans es
+>          ; case ps of
+>            { (p':ps') ->
+>               return (foldl (\xs x -> PInterleave xs x Greedy) p' ps')
 >            ; [] -> error "an empty choice enountered." -- todo : capture the error in the monad state
 >            }
 >          }
@@ -443,6 +457,18 @@ e ~>_r r
 >          ; case rs of
 >            { [] -> return Phi
 >            ; (r:rs) -> return (foldl (\ xs x -> Choice xs x Greedy) r rs)
+>            }
+>          }
+>     ; EInterleave es ->
+>       {-
+>         e1 ~>_r r1 e2 ~>_r r2
+>       -------------------
+>         e1&e2 ~>_r r1&r2
+>        -}
+>       do { rs <- mapM r_trans es
+>          ; case rs of
+>            { [] -> return Phi
+>            ; (r:rs) -> return (foldl (\ xs x -> Interleave xs x Greedy) r rs)
 >            }
 >          }
 >     ; EConcat es ->

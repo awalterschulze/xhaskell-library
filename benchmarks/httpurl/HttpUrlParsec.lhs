@@ -10,7 +10,7 @@
 
 > url = S.pack "http://www.linux.com/\nhttp://www.thelinuxshow.com/main.php3"
 
-> parse compiled s = case regexec compiled s of 
+> parse compiled s = case regexec compiled s of
 >                    (Right (Just (_,_,_,l))) -> Just l
 >                    _ -> Nothing
 

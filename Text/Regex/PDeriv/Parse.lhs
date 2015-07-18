@@ -48,8 +48,14 @@ posix pattern parsing: we need to add binders everywhere
 >                   }
 
 
+> p_or :: CharParser EState EPat
+> p_or = EOr <$> sepBy1 p_interleave (char '|')
+
+> p_interleave :: CharParser EState EPat
+> p_interleave = EInterleave <$> sepBy1 p_branch (char '&')
+
 > p_ere :: CharParser EState EPat
-> p_ere = liftM EOr $ sepBy1 p_branch (char '|')
+> p_ere = p_or
 
 > p_branch :: CharParser EState EPat
 > p_branch = liftM EConcat $ many1 p_exp
@@ -167,7 +173,7 @@ oct ascii, e.g. \000
 
 parse a single non-escaped char
 
-> specials = "^.[$()|*+?{\\"
+> specials = "^.[$()|*+?{\\&"
 
 > p_char = noneOf specials >>= \c -> return (EChar c)
 

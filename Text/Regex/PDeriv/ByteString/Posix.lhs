@@ -48,7 +48,7 @@ See resetLocalBnd below. Todo: we might want to update other algos to make it co
 > import Text.Regex.PDeriv.Parse
 > import qualified Text.Regex.PDeriv.Dictionary as D (Dictionary(..), Key(..), insertNotOverwrite, lookupAll, empty, isIn, nub)
 
-
+> import Prelude hiding (Word)
 
 > logger io = unsafePerformIO io
 
@@ -397,6 +397,7 @@ retrieve all variables appearing in p
 > getVars (PStar p1 g)  = (getVars p1)
 > getVars (PE r)        = []
 > getVars (PChoice p1 p2 _) = (getVars p1) ++ (getVars p2)
+> getVars (PInterleave p1 p2 _) = (getVars p1) ++ (getVars p2)
 > getVars (PEmpty p) = (getVars p)
 
 An specialized version of pdPat0 specially designed for the Posix match
@@ -433,6 +434,8 @@ In case of p* we reset in the local binding.
 >     else [ (PPair p1' p2, f, True) | (p1',f, _) <- pdPat0 p1 l ]
 > pdPat0 (PChoice p1 p2 _) l =
 >     nub3 ((pdPat0 p1 l) ++ (pdPat0 p2 l)) -- nub doesn't seem to be essential
+> pdPat0 (PInterleave p1 p2 g) l =
+>     pdPat0 (PChoice (PPair p1 p2) (PPair p2 p1) g) l
 
 
 >
@@ -577,7 +580,6 @@ In case of p* we reset in the local binding.
 >                       (Just [(Range _ x)], _)            -> (x, l - x)
 >                       (_, Just [(Range y _)])            -> (0, y)
 >                       (_, _)                       -> (0, l)
->                       _                            -> error (show (mbPrefixB, mbSubfixB) )
 >         rs        = map snd subPatB
 >         rs'       = map lastNonEmpty rs
 >         io = logger (print $ "\n" ++ show rs ++ " || " ++ show rs' ++ "\n")
@@ -618,6 +620,7 @@ In case of p* we reset in the local binding.
 > buildFollowBy (PChoice p1 p2 _) (acc, lefts) = let (acc1, lefts1) = buildFollowBy p1 (acc,lefts)
 >                                                    (acc2, lefts2) = buildFollowBy p2 (acc1,lefts)
 >                                                in (acc2, lefts1 ++ lefts2)
+> buildFollowBy (PInterleave p1 p2 g) (acc, lefts) = buildFollowBy (PChoice (PPair p1 p2) (PPair p2 p1) g) (acc, lefts)
 
 
 

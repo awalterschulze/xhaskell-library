@@ -4,14 +4,16 @@
 > import Data.Maybe
 > import qualified Data.ByteString.Char8 as S
 
+> pat :: S.ByteString
 > pat = S.pack "^(([^:]+)://)?([^:/]+)(:([0-9]+))?(/.*)"
 
-
+> url :: S.ByteString
 > url = S.pack "http://www.linux.com/\nhttp://www.thelinuxshow.com/main.php3"
 
-> parse compiled s = 
+> parse :: Regex -> S.ByteString -> IO (Maybe [S.ByteString])
+> parse compiled s =
 >     do { res <- regexec compiled s
->        ; case res of 
+>        ; case res of
 >          { (Right (Just (_,_,_,l))) -> return (Just l)
 >          ;  _ -> return Nothing
 >          }

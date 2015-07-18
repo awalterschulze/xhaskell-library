@@ -39,7 +39,7 @@ an emptiable pattern and the input word is fully consumed.
 > import Text.Regex.PDeriv.Parse
 > import qualified Text.Regex.PDeriv.Dictionary as D (Dictionary(..), Key(..), insertNotOverwrite, lookupAll, empty, isIn, nub)
 
-
+> import Prelude hiding (Word)
 
 A word is a byte string.
 
@@ -413,8 +413,10 @@ pattern = ( x :: ( y :: A, z :: B )* )
 
 pattern = ( x :: A*?, y :: A*)
 
+> p8 :: Pat
 > p8 = PPair (PVar 1 [] (PE (Star (L 'A') NotGreedy))) (PVar 2 [] (PE (Star (L 'A') Greedy)))
 
+> input8 :: S.ByteString
 > input8 = S.pack "AAAAAA"
 
 pattern = ( x :: A*?, y :: A*)

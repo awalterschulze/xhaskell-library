@@ -38,6 +38,8 @@ failures states as long as we cannot find them in the sets.
 > import Text.Regex.PDeriv.Parse
 > import qualified Text.Regex.PDeriv.Dictionary as D (Dictionary(..), Key(..), insertNotOverwrite, lookupAll, empty, isIn, nub)
 
+> import Prelude hiding (Word)
+
 A word is a byte string.
 
 > type Word = S.ByteString
