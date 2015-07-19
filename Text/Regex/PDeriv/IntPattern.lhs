@@ -54,7 +54,7 @@
 >     pretty (PVar x1 _ p1) = "(" ++ show x1 ++ ":" ++ pretty p1 ++ ")"
 >     pretty (PPair p1 p2) = "<" ++ pretty p1 ++ "," ++ pretty p2 ++ ">"
 >     pretty (PChoice p1 p2 g) = "(" ++ pretty p1 ++ "|" ++ pretty p2 ++ ")" ++ (show g)
->     pretty (PInterleave p1 p2 g) = "(" ++ pretty p1 ++ "&" ++ pretty p2 ++ ")" ++ (show g)
+>     pretty (PInterleave p1 p2 g) = "(" ++ pretty p1 ++ "%" ++ pretty p2 ++ ")" ++ (show g)
 >     pretty (PE r) = show r
 >     pretty (PPlus p1 p2 ) = "(" ++ pretty p1 ++ "," ++ pretty p2 ++ ")"
 >     pretty (PStar p g) = (pretty p) ++ "*" ++ (show g)

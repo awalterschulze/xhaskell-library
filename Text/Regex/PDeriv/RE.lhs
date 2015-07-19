@@ -42,7 +42,7 @@
 >     show Empty = "<>"
 >     show (L c) = show c
 >     show (Choice r1 r2 g) = "(" ++ show r1 ++ "|" ++ show r2 ++ ")" ++ show g
->     show (Interleave r1 r2 g) = "(" ++ show r1 ++ "&" ++ show r2 ++ ")" ++ show g
+>     show (Interleave r1 r2 g) = "(" ++ show r1 ++ "%" ++ show r2 ++ ")" ++ show g
 >     show (Seq r1 r2) = "<" ++ show r1 ++ "," ++ show r2 ++ ">"
 >     show (Star r g) = show r ++ "*" ++ show g
 >     show Any = "."

@@ -56,7 +56,7 @@ runTests = do {
     testLtoR ".*(bb|ab).*" "abc" matched ["ab", ""];
     testLtoR ".*(bb|ab).*" "abc" matched ["ab", ""];
     testLtoR ".*(bb|ab).*" "abc" matched ["ab", ""];
-    testLtoR "(ab&c)" "abc" mainpart ["abc"];
-    testLtoR "(c&ab)" "abc" mainpart ["abc"];
+    testLtoR "(ab%c)" "abc" mainpart ["abc"];
+    testLtoR "(c%ab)" "abc" mainpart ["abc"];
     return ()
 }
