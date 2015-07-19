@@ -35,7 +35,7 @@ This parser is largely adapted from Text.Regex.TDFA.ReadRegex
 
 > parsePat :: String -> Either ParseError Pat
 > parsePat x = case parseEPat x of
->              { Left error -> Left error
+>              { Left err -> Left err
 >              ; Right (epat, estate) -> Right (translate epat)
 >              }
 
@@ -43,7 +43,7 @@ posix pattern parsing: we need to add binders everywhere
 
 > parsePatPosix :: String -> Either ParseError (Pat,IM.IntMap ())
 > parsePatPosix x = case parseEPat x of
->                   { Left error -> Left error
+>                   { Left err -> Left err
 >                   ; Right (epat, estate) -> Right (translatePosix epat)
 >                   }
 
