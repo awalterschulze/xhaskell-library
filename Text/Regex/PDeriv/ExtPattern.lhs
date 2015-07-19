@@ -17,8 +17,9 @@
 >          | ENoneOf [Char] -- ^ the negative character class [^a-z]
 >          | EEscape Char   -- ^ backslash char
 >          | EChar Char     -- ^ the non-escaped char
->          | EInterleave [EPat]
->          | EAnd [EPat]
+>          | EInterleave [EPat] -- ^ the interleave re%re
+>          | EAnd [EPat]        -- ^ the and re&re
+>          | ECompliment EPat -- the compliment re!
 >           deriving Show
 
 > -- | Function 'hasGroup' tests whether an external pattern has ( ... ) (i.e. variable patterns in the internal pattern)
@@ -41,3 +42,4 @@
 > hasGroup (EChar _) = False
 > hasGroup (EInterleave eps) = any hasGroup eps
 > hasGroup (EAnd eps) = any hasGroup eps
+> hasGroup (ECompliment ep) = hasGroup ep

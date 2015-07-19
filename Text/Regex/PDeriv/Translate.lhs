@@ -151,6 +151,7 @@ getters and putters
 >           isStructural (EStar _ _)     = True
 >           isStructural (EInterleave _) = True
 >           isStructural (EAnd _)        = True
+>           isStructural (ECompliment _) = True
 >           isStructural _               = False
 
 > trans' :: EPat -> State TState Pat
@@ -421,18 +422,27 @@ getters and putters
 >            ; [] -> error "an empty and enountered." -- todo : capture the error in the monad state
 >            }
 >          }
+>     ; ECompliment e ->
+>       do { p <- trans e
+>          ; return (PCompliment p)
+>          }
 >     }
 
 
+> char_list_to_re :: [Char] -> RE
 > char_list_to_re (c:cs) = foldl (\ r c' -> Choice r (L c') Greedy) (L c) cs
 > char_list_to_re [] = error "char_list_to_re expects non-empty list"
 
+> alphas :: RE
 > alphas = char_list_to_re (['a'..'z'] ++ ['A'..'Z'])
 
+> digits :: RE
 > digits = char_list_to_re ['0'..'9']
 
+> sigma :: [Char]
 > sigma = map chr [0 .. 255]
 
+> anychar :: RE
 > anychar = char_list_to_re sigma
 
 
@@ -626,6 +636,10 @@ e ~>_r r
 >            { [] -> return Empty
 >            ; (r:rs) -> return (foldl (\ xs x -> And xs x Greedy) r rs)
 >            }
+>          }
+>     ; ECompliment e ->
+>       do { p <- r_trans e
+>          ; return (Compliment p)
 >          }
 >     }
 >

@@ -400,6 +400,7 @@ retrieve all variables appearing in p
 > getVars (PEmpty p) = (getVars p)
 > getVars (PInterleave p1 p2 _) = (getVars p1) ++ (getVars p2)
 > getVars (PAnd p1 p2 _) = (getVars p1) ++ (getVars p2)
+> getVars (PCompliment p) = (getVars p)
 
 An specialized version of pdPat0 specially designed for the Posix match
 In case of p* we reset in the local binding.
@@ -437,7 +438,8 @@ In case of p* we reset in the local binding.
 >     nub3 ((pdPat0 p1 l) ++ (pdPat0 p2 l)) -- nub doesn't seem to be essential
 > pdPat0 (PInterleave p1 p2 g) l =
 >     pdPat0 (PChoice (PPair p1 p2) (PPair p2 p1) g) l
-> pdPat0 (PAnd p1 p2 g) l = error "TODO"
+> pdPat0 (PAnd p1 p2 g) l = error "TODO Posix pdPat0 PAnd"
+> pdPat0 (PCompliment _) _ = error "TODO Posix pdPat0 PCompliment"
 
 
 >
@@ -623,7 +625,8 @@ In case of p* we reset in the local binding.
 >                                                    (acc2, lefts2) = buildFollowBy p2 (acc1,lefts)
 >                                                in (acc2, lefts1 ++ lefts2)
 > buildFollowBy (PInterleave p1 p2 g) (acc, lefts) = buildFollowBy (PChoice (PPair p1 p2) (PPair p2 p1) g) (acc, lefts)
-> buildFollowBy (PAnd p1 p2 g) (acc, lefts) = error "TODO"
+> buildFollowBy (PAnd p1 p2 g) (acc, lefts) = error "TODO Posix buildFollowBy PAnd"
+> buildFollowBy (PCompliment p) (acc, lefts) = error "TODO Posix buildFollowBy PCompliment"
 
 
 

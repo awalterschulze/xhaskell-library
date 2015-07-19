@@ -23,6 +23,7 @@
 >  | Not [Char]    -- ^ excluding characters e.g. [^abc]
 >  | Interleave RE RE GFlag -- ^ an interleave exp 'r1 % r2'
 >  | And RE RE GFlag -- ^ an and exp 'r1 & r2'
+>  | Compliment RE   -- ^ an compliment exp 'r!'
 
 > -- | the eq instance
 > instance Eq RE where
@@ -35,6 +36,7 @@
 >     (==) (Not cs) (Not cs') = cs == cs'
 >     (==) (Interleave r1 r2 g1) (Interleave r3 r4 g2) = (g1 == g2) && (r2 == r4) && (r1 == r3)
 >     (==) (And r1 r2 g1) (And r3 r4 g2) = (g1 == g2) && (r2 == r4) && (r1 == r3)
+>     (==) (Compliment r1) (Compliment r2) = (r1 == r2)
 >     (==) _ _ = False
 
 
@@ -50,6 +52,7 @@
 >     show (Not cs) = "[^" ++ cs ++ "]"
 >     show (Interleave r1 r2 g) = "(" ++ show r1 ++ "%" ++ show r2 ++ ")" ++ show g
 >     show (And r1 r2 g) = "(" ++ show r1 ++ "&" ++ show r2 ++ ")" ++ show g
+>     show (Compliment r) = show r ++ "!"
 
 > instance IsGreedy RE where
 >     isGreedy Phi = True
@@ -63,9 +66,10 @@
 >     isGreedy Any = True
 >     isGreedy (Not _) = True
 >     isGreedy (Interleave r1 r2 Greedy) = True
->     isGreedy (Interleave r1 r2 NotGreedy) = False -- (isGreedy r1) || (isGreedy r2)
+>     isGreedy (Interleave r1 r2 NotGreedy) = False
 >     isGreedy (And _ _ Greedy) = True
->     isGreedy (And _ _ NotGreedy) = False -- (isGreedy r1) || (isGreedy r2)
+>     isGreedy (And _ _ NotGreedy) = False
+>     isGreedy (Compliment r) = isGreedy r
 
 > instance Key RE where
 >     hash Phi = [0]
@@ -99,6 +103,8 @@
 >     hash (And r1 r2 NotGreedy) = {- let x1 = head (hash r1)
 >                                         x2 = head (hash r2)
 >                                     in [ 13 + x1 * primeL + x2 * primeR ] -} [13]
+>     hash (Compliment r) = {- let x = head (hash r)
+>                             in [ 14 + x * primeL ] -} [14]
 
 
 
@@ -119,6 +125,7 @@
 >   posEpsilon (Not _) = False
 >   posEpsilon (Interleave r1 r2 g) = (posEpsilon r1) && (posEpsilon r2)
 >   posEpsilon (And r1 r2 g) = (posEpsilon r1) && (posEpsilon r2)
+>   posEpsilon (Compliment r) = not $ posEpsilon r -- TODO
 
 
 > -- | function 'isEpsilon' checks whether epsilon = r
@@ -134,6 +141,7 @@
 >   isEpsilon (Not _) = False
 >   isEpsilon (Interleave r1 r2 g) = (isEpsilon r1) && (isEpsilon r2)
 >   isEpsilon (And r1 r2 g) = (isEpsilon r1) && (isEpsilon r2)
+>   isEpsilon (Compliment r) = not $ isEpsilon r -- TODO
 
 > instance IsPhi RE where
 >   isPhi Phi = True
@@ -146,6 +154,7 @@
 >   isPhi (Not _) = False
 >   isPhi (Interleave r1 r2 g) = (isPhi r1) || (isPhi r2)
 >   isPhi (And r1 r2 g) = (isPhi r1) || (isPhi r2)
+>   isPhi (Compliment r) = not $ isPhi r -- TODO
 
 > -- | function 'partDeriv' implements the partial derivative operations for regular expressions. We don't pay attention to the greediness flag here.
 > partDeriv :: RE -> Char -> [RE]
@@ -190,6 +199,10 @@
 >         s1 = partDerivSub r1 l
 >         s2 = partDerivSub r2 l
 >     in s1 `seq` s2 `seq` [And r1' r2' g | r1' <- s1, r2' <- s2]
+> partDerivSub (Compliment r) l =
+>     let
+>         s = partDerivSub r l
+>     in s `seq` [Compliment r' | r' <- s]
 
 > -- | function 'sigmaRE' returns all characters appearing in a reg exp.
 > sigmaRE :: RE -> [Char]
@@ -206,6 +219,7 @@
 > sigmaREsub Empty = []
 > sigmaREsub (Interleave r1 r2 g) = (sigmaREsub r1) ++ (sigmaREsub r2)
 > sigmaREsub (And r1 r2 g) = (sigmaREsub r1) ++ (sigmaREsub r2)
+> sigmaREsub (Compliment r) = sigmaREsub r -- TODO
 
 > instance Simplifiable RE where
 >     simplify (L l) = L l
@@ -232,3 +246,4 @@
 >     simplify Empty = Empty
 >     simplify (Interleave r1 r2 g) = Interleave (simplify r1) (simplify r2) g
 >     simplify (And r1 r2 g) = And (simplify r1) (simplify r2) g
+>     simplify (Compliment r) = Compliment (simplify r)

@@ -1,3 +1,5 @@
+{-- By Walter Schulze, 2015, BSD License --}
+
 module Test (
     runTests,
     main,
@@ -89,6 +91,7 @@ runTests = do {
     testLtoR "(ab%c)" "abc" mainpart ["abc"];
     testLtoR "(c%ab)" "abc" mainpart ["abc"];
     testLtoR "(a..&..c)" "AAabcAA" mainpart ["abc"];
+    testLtoR "(BB)!" "bb" mainpart ["bb"];
 
     testLtoRD ".*" "abc" mainpart ["abc"];
     testLtoRD "a" "abc" mainpart ["a"];

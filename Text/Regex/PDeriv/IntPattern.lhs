@@ -17,7 +17,7 @@
 
 > import Data.List
 > import qualified Data.IntMap as IM
-> import Text.Regex.PDeriv.Common (Range(..), range, minRange, maxRange, Letter, PosEpsilon(..), IsEpsilon(..), IsPhi(..), GFlag(..), IsGreedy(..), Simplifiable(..) )
+> import Text.Regex.PDeriv.Common (Range(..), range, Letter, PosEpsilon(..), IsEpsilon(..), IsPhi(..), GFlag(..), IsGreedy(..), Simplifiable(..) )
 > import Text.Regex.PDeriv.RE
 > import Text.Regex.PDeriv.Dictionary (Key(..), primeL, primeR)
 > import Text.Regex.PDeriv.Pretty
@@ -28,11 +28,12 @@
 >   | PE RE                             -- ^ pattern without binder
 >   | PPair Pat Pat                     -- ^ pair pattern
 >   | PChoice Pat Pat GFlag             -- ^ choice pattern
->   | PInterleave Pat Pat GFlag         -- ^ interleave pattern
->   | PAnd Pat Pat GFlag                -- ^ and pattern
 >   | PStar Pat GFlag                   -- ^ star pattern
 >   | PPlus Pat Pat                     -- ^ plus pattern, it is used internally to indicate that it is unrolled from a PStar
 >   | PEmpty Pat                        -- ^ empty pattern, it is used intermally to indicate that mkEmpty function has been applied.
+>   | PInterleave Pat Pat GFlag         -- ^ interleave pattern
+>   | PAnd Pat Pat GFlag                -- ^ and pattern
+>   | PCompliment Pat                   -- ^ compliment pattern
 
 
 > {-| The Eq instance for Pat data type
@@ -44,11 +45,12 @@
 >   (==) (PVar x1 _ p1) (PVar x2 _ p2) = (x1 == x2) && (p1 == p2)
 >   (==) (PPair p1 p2) (PPair p1' p2') = (p1 == p1') && (p2 == p2')
 >   (==) (PChoice p1 p2 g1) (PChoice p1' p2' g2) = (g1 == g2) && (p2 == p2') && (p1 == p1') -- more efficient, because choices are constructed in left-nested
->   (==) (PInterleave p1 p2 g1) (PInterleave p1' p2' g2) = (g1 == g2) && (((p2 == p2') && (p1 == p1')) || ((p2 == p1') && (p1 == p2')))
->   (==) (PAnd p1 p2 g1) (PAnd p1' p2' g2) = (g1 == g2) && (p2 == p2') && (p1 == p1')
 >   (==) (PPlus p1 p2) (PPlus p1' p2') = (p1 == p1') && (p2 == p2')
 >   (==) (PStar p1 g1) (PStar p2 g2) =  (g1 == g2) && (p1 == p2)
 >   (==) (PE r1) (PE r2) = r1 == r2
+>   (==) (PInterleave p1 p2 g1) (PInterleave p1' p2' g2) = (g1 == g2) && (((p2 == p2') && (p1 == p1')) || ((p2 == p1') && (p1 == p2')))
+>   (==) (PAnd p1 p2 g1) (PAnd p1' p2' g2) = (g1 == g2) && (p2 == p2') && (p1 == p1')
+>   (==) (PCompliment p1) (PCompliment p2) = (p1 == p2)
 >   (==) _ _ = False
 >
 
@@ -56,12 +58,13 @@
 >     pretty (PVar x1 _ p1) = "(" ++ show x1 ++ ":" ++ pretty p1 ++ ")"
 >     pretty (PPair p1 p2) = "<" ++ pretty p1 ++ "," ++ pretty p2 ++ ">"
 >     pretty (PChoice p1 p2 g) = "(" ++ pretty p1 ++ "|" ++ pretty p2 ++ ")" ++ (show g)
->     pretty (PInterleave p1 p2 g) = "(" ++ pretty p1 ++ "%" ++ pretty p2 ++ ")" ++ (show g)
->     pretty (PAnd p1 p2 g) = "(" ++ pretty p1 ++ "&" ++ pretty p2 ++ ")" ++ (show g)
 >     pretty (PE r) = show r
 >     pretty (PPlus p1 p2 ) = "(" ++ pretty p1 ++ "," ++ pretty p2 ++ ")"
 >     pretty (PStar p g) = (pretty p) ++ "*" ++ (show g)
 >     pretty (PEmpty p) = "[" ++ pretty p ++ "]"
+>     pretty (PInterleave p1 p2 g) = "(" ++ pretty p1 ++ "%" ++ pretty p2 ++ ")" ++ (show g)
+>     pretty (PAnd p1 p2 g) = "(" ++ pretty p1 ++ "&" ++ pretty p2 ++ ")" ++ (show g)
+>     pretty (PCompliment p) = (pretty p) ++ "!"
 
 > instance Show Pat where
 >     show pat = pretty pat
@@ -102,11 +105,12 @@
 >     hash (PAnd p1 p2 NotGreedy) =   let x1 = head (hash p1)
 >                                         x2 = head (hash p2)
 >                                     in x1 `seq` x2 `seq` [ 13 + x1 * primeL + x2 * primeR ]
+>     hash (PCompliment p) = let x = head (hash p) in x `seq` [ 14 + x * primeL ]
 >
 
 > -- | function 'strip' strips away the bindings from a pattern
 > strip :: Pat -> RE
-> strip (PVar _ w p) = strip p
+> strip (PVar _ _ p) = strip p
 > strip (PE r) = r
 > strip (PStar p g) = Star (strip p) g
 > strip (PPair p1 p2) = Seq (strip p1) (strip p2)
@@ -114,6 +118,7 @@
 > strip (PChoice p1 p2 g) = Choice (strip p1) (strip p2) g
 > strip (PInterleave p1 p2 g) = Interleave (strip p1) (strip p2) g
 > strip (PAnd p1 p2 g) = And (strip p1) (strip p2) g
+> strip (PCompliment p) = Compliment (strip p)
 > strip (PEmpty p) = strip p
 
 
@@ -123,12 +128,13 @@
 > mkEmpPat (PE r)
 >   | posEpsilon r = PE Empty
 >   | otherwise = PE Phi
-> mkEmpPat (PStar p g) = PE Empty -- problematic?! we are losing binding (x,()) from  ( x : a*) ~> PE <>
-> mkEmpPat (PPlus p1 p2) = mkEmpPat p1 -- since p2 must be pstar we drop it. If we mkEmpPat p2, we need to deal with pdPat (PPlus (x :<>) (PE <>)) l
+> mkEmpPat (PStar _ _) = PE Empty -- problematic?! we are losing binding (x,()) from  ( x : a*) ~> PE <>
+> mkEmpPat (PPlus p1 _) = mkEmpPat p1 -- since p2 must be pstar we drop it. If we mkEmpPat p2, we need to deal with pdPat (PPlus (x :<>) (PE <>)) l
 > mkEmpPat (PPair p1 p2) = PPair (mkEmpPat p1) (mkEmpPat p2)
 > mkEmpPat (PChoice p1 p2 g) = PChoice (mkEmpPat p1) (mkEmpPat p2) g
 > mkEmpPat (PInterleave p1 p2 g) = PInterleave (mkEmpPat p1) (mkEmpPat p2) g
 > mkEmpPat (PAnd p1 p2 g) = PAnd (mkEmpPat p1) (mkEmpPat p2) g
+> mkEmpPat (PCompliment p) = PCompliment (mkEmpPat p)
 
 > {-| function 'pdPat' computes the partial derivatives of a pattern w.r.t. a letter.
 >    Integrating non-greedy operator with PStar
@@ -157,7 +163,7 @@
 >                         [ PVar x ((range b idx):rs) pd | pd <- pds ]
 >                     | otherwise ->      -- it is NOT consecutive
 >                         [ PVar x ((range idx idx):rs_) pd | pd <- pds ]
-> pdPat (PE r) (l,idx) = let pds = partDeriv r l
+> pdPat (PE r) (l,_) = let pds = partDeriv r l
 >                  in if null pds then []
 >                     else [ PE $ resToRE pds ]
 > {-| The non-greedy operator has impact to a sequence pattern if the
@@ -188,11 +194,12 @@
 >         then [ PPlus p3 p2 | p3  <- pdPat p1 l ] ++ [ PPlus p3 p2' | (PPlus p1' p2') <- pdPat p2 l, let p3 =  p1' `getBindingsFrom` p1 ]
 >         else [ PPlus p3 p2' | (PPlus p1' p2') <- pdPat p2 l, let p3 =  p1' `getBindingsFrom` p1 ] ++ [ PPlus p3 p2 | p3  <- pdPat p1 l ]
 >     | otherwise          = [ PPlus p3 p2 | p3  <- pdPat p1 l ]
-> pdPat (PChoice p1 p2 g) l =
+> pdPat (PChoice p1 p2 _) l =
 >    nub ((pdPat p1 l)  ++ (pdPat p2 l)) -- nub doesn't seem to be essential
 > pdPat (PInterleave p1 p2 g) l =
 >    pdPat (PChoice (PPair p1 p2) (PPair p2 p1) g) l
-> pdPat (PAnd _ _ _) _ = error "TODO"
+> pdPat (PAnd _ _ _) _ = error "TODO IntPattern pdPat PAnd"
+> pdPat (PCompliment _) _ = error "TODO IntPattern pdPat PCompliment"
 > pdPat p l = error ((show p) ++ (show l))
 
 > -- | function 'getBindingsFrom' transfer bindings from p2 to p1
@@ -213,6 +220,7 @@
 >           assign (PChoice p1 p2 g) b = PChoice (assign p1 b) (assign p2 b) g
 >           assign (PInterleave p1 p2 g) b = PInterleave (assign p1 b) (assign p2 b) g
 >           assign (PAnd p1 p2 g) b = PAnd (assign p1 b) (assign p2 b) g
+>           assign (PCompliment p) b = PCompliment (assign p b)
 
 
 
@@ -221,16 +229,17 @@
 >     isGreedy (PVar _ _ p) = isGreedy p
 >     isGreedy (PE r) = isGreedy r
 >     isGreedy (PPair p1 p2) = isGreedy p1 || isGreedy p2
->     isGreedy (PChoice p1 p2 Greedy) = True
->     isGreedy (PChoice p1 p2 NotGreedy) = False -- isGreedy p1 || isGreedy p2
->     isGreedy (PEmpty p) = False
->     isGreedy (PStar p Greedy) = True
->     isGreedy (PStar p NotGreedy) = False
+>     isGreedy (PChoice _ _ Greedy) = True
+>     isGreedy (PChoice _ _ NotGreedy) = False -- isGreedy p1 || isGreedy p2
+>     isGreedy (PEmpty _) = False
+>     isGreedy (PStar _ Greedy) = True
+>     isGreedy (PStar _ NotGreedy) = False
 >     isGreedy (PPlus p p') = isGreedy p || isGreedy p'
 >     isGreedy (PInterleave _ _ Greedy) = True
 >     isGreedy (PInterleave _ _ NotGreedy) = False -- isGreedy p1 || isGreedy p2
 >     isGreedy (PAnd _ _ Greedy) = True
 >     isGreedy (PAnd _ _ NotGreedy) = False -- isGreedy p1 || isGreedy p2
+>     isGreedy (PCompliment p) = isGreedy p
 
 
 > -- | The 'Binder' type denotes a set of (pattern var * range) pairs
@@ -242,13 +251,14 @@
 > hasBinder :: Pat -> Bool
 > hasBinder (PVar _ _ _) = True
 > hasBinder  (PPair p1 p2) = (hasBinder p1) || (hasBinder p2)
-> hasBinder  (PPlus p1 p2) = hasBinder p1
-> hasBinder  (PStar p1 g)  = hasBinder p1
-> hasBinder  (PE r)        = False
-> hasBinder  (PChoice p1 p2 g) = (hasBinder p1) || (hasBinder p2)
+> hasBinder  (PPlus p1 _) = hasBinder p1
+> hasBinder  (PStar p1 _)  = hasBinder p1
+> hasBinder  (PE _)        = False
+> hasBinder  (PChoice p1 p2 _) = (hasBinder p1) || (hasBinder p2)
 > hasBinder  (PEmpty p) = hasBinder p
-> hasBinder  (PInterleave p1 p2 g) = (hasBinder p1) || (hasBinder p2)
-> hasBinder  (PAnd p1 p2 g) = (hasBinder p1) || (hasBinder p2)
+> hasBinder  (PInterleave p1 p2 _) = (hasBinder p1) || (hasBinder p2)
+> hasBinder  (PAnd p1 p2 _) = (hasBinder p1) || (hasBinder p2)
+> hasBinder  (PCompliment p) = (hasBinder p)
 
 
 > -- | Function 'toBinder' turns a pattern into a binder
@@ -258,13 +268,14 @@
 > toBinderList :: Pat -> [(Int, [Range])]
 > toBinderList  (PVar i rs p) = [(i, rs)] ++ (toBinderList p)
 > toBinderList  (PPair p1 p2) = (toBinderList p1) ++ (toBinderList p2)
-> toBinderList  (PPlus p1 p2) = (toBinderList p1)
-> toBinderList  (PStar p1 g)    = (toBinderList p1)
-> toBinderList  (PE r)        = []
-> toBinderList  (PChoice p1 p2 g) = (toBinderList p1) ++ (toBinderList p2)
+> toBinderList  (PPlus p1 _) = (toBinderList p1)
+> toBinderList  (PStar p1 _)    = (toBinderList p1)
+> toBinderList  (PE _)        = []
+> toBinderList  (PChoice p1 p2 _) = (toBinderList p1) ++ (toBinderList p2)
 > toBinderList  (PEmpty p) = toBinderList p
-> toBinderList  (PInterleave p1 p2 g) = (toBinderList p1) ++ (toBinderList p2)
-> toBinderList  (PAnd p1 p2 g) = (toBinderList p1) ++ (toBinderList p2)
+> toBinderList  (PInterleave p1 p2 _) = (toBinderList p1) ++ (toBinderList p2)
+> toBinderList  (PAnd p1 p2 _) = (toBinderList p1) ++ (toBinderList p2)
+> toBinderList  (PCompliment p) = toBinderList p
 
 > listifyBinder :: Binder -> [(Int, [Range])]
 > listifyBinder b = sortBy (\ x y -> compare (fst x) (fst y)) (IM.toList b)
@@ -336,7 +347,7 @@
 > pdPat0 :: Pat  -- ^ the source pattern
 >           -> Letter -- ^ the letter to be "consumed"
 >           -> [(Pat, Int -> Binder -> Binder)]
-> pdPat0 (PVar x w p) (l,idx)
+> pdPat0 (PVar x _ p) (l,idx)
 >     | hasBinder p =
 >         let pfs = pdPat0 p (l,idx)
 >         in g `seq` pfs `seq` [ (PVar x [] pd, (\i -> (g i) . (f i) )) | (pd,f) <- pfs ]
@@ -356,7 +367,7 @@
 >         in g `seq` pfs `seq` [ (PVar x [] pd, (\i -> (g i) . (f i) )) | (pd,f) <- pfs ]
 >     where g = updateBinderByIndex x
 > -}
-> pdPat0 (PE r) (l,idx) =
+> pdPat0 (PE r) (l,_) =
 >     let pds = partDeriv r l
 >     in  pds `seq` if null pds then []
 >                   else [ (PE (resToRE pds), ( \_ -> id ) ) ]
@@ -368,11 +379,12 @@
 >          then nub2 ([ (PPair p1' p2, f) | (p1' , f) <- pdPat0 p1 l ] ++ (pdPat0 p2 l))
 >          else nub2 ((pdPat0 p2 l) ++ [ (PPair p1' p2, f) | (p1' , f) <- pdPat0 p1 l ])
 >     else [ (PPair p1' p2, f) | (p1',f) <- pdPat0 p1 l ]
-> pdPat0 (PChoice p1 p2 g) l =
+> pdPat0 (PChoice p1 p2 _) l =
 >      nub2 ((pdPat0 p1 l) ++ (pdPat0 p2 l)) -- nub doesn't seem to be essential
 > pdPat0 (PInterleave p1 p2 g) l =
 >      pdPat0 (PChoice (PPair p1 p2) (PPair p2 p1) g) l
-> pdPat0 (PAnd _ _ _) _ = error "TODO"
+> pdPat0 (PAnd _ _ _) _ = error "TODO IntPattern pdPat0 PAnd"
+> pdPat0 (PCompliment _) _ = error "TODO IntPattern pdPat0 PCompliment"
 
 
 > nub2 :: Eq a => [(a,b)] -> [(a,b)]
@@ -419,27 +431,30 @@
 >         let p1' = simplify p1
 >             p2' = simplify p2
 >         in if p1' == p2' then p1' else (PAnd p1' p2' g)
+>     simplify (PCompliment p) = PCompliment (simplify p)
 
 
 > instance IsEpsilon Pat where
 >    isEpsilon (PVar _ _ p) = isEpsilon p
 >    isEpsilon (PE r) = isEpsilon r
->    isEpsilon (PPair p1 p2) =  (isEpsilon p1) && (isEpsilon p2)
->    isEpsilon (PChoice p1 p2 _) =  (isEpsilon p1) && (isEpsilon p2)
+>    isEpsilon (PPair p1 p2) = (isEpsilon p1) && (isEpsilon p2)
+>    isEpsilon (PChoice p1 p2 _) = (isEpsilon p1) && (isEpsilon p2)
 >    isEpsilon (PStar p _) = isEpsilon p
 >    isEpsilon (PPlus p1 p2) = isEpsilon p1 && isEpsilon p2
 >    isEpsilon (PEmpty _) = True
->    isEpsilon (PInterleave p1 p2 _) =  (isEpsilon p1) && (isEpsilon p2)
->    isEpsilon (PAnd p1 p2 _) =  (isEpsilon p1) && (isEpsilon p2)
+>    isEpsilon (PInterleave p1 p2 _) = (isEpsilon p1) && (isEpsilon p2)
+>    isEpsilon (PAnd p1 p2 _) = (isEpsilon p1) && (isEpsilon p2)
+>    isEpsilon (PCompliment p) = isEpsilon p -- TODO
 
 
 > instance IsPhi Pat where
 >    isPhi (PVar _ _ p) = isPhi p
 >    isPhi (PE r) = isPhi r
->    isPhi (PPair p1 p2) =  (isPhi p1) || (isPhi p2)
->    isPhi (PChoice p1 p2 _) =  (isPhi p1) && (isPhi p2)
->    isPhi (PStar p _) = False
+>    isPhi (PPair p1 p2) = (isPhi p1) || (isPhi p2)
+>    isPhi (PChoice p1 p2 _) = (isPhi p1) && (isPhi p2)
+>    isPhi (PStar _ _) = False
 >    isPhi (PPlus p1 p2) = isPhi p1 || isPhi p2
 >    isPhi (PEmpty _) = False
->    isPhi (PInterleave p1 p2 _) =  (isPhi p1) || (isPhi p2)
->    isPhi (PAnd p1 p2 _) =  (isPhi p1) || (isPhi p2)
+>    isPhi (PInterleave p1 p2 _) = (isPhi p1) || (isPhi p2)
+>    isPhi (PAnd p1 p2 _) = (isPhi p1) || (isPhi p2)
+>    isPhi (PCompliment p) = isPhi p -- TODO
