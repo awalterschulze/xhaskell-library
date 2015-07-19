@@ -28,7 +28,8 @@
 >   | PE RE                             -- ^ pattern without binder
 >   | PPair Pat Pat                     -- ^ pair pattern
 >   | PChoice Pat Pat GFlag             -- ^ choice pattern
->   | PInterleave Pat Pat GFlag
+>   | PInterleave Pat Pat GFlag         -- ^ interleave pattern
+>   | PAnd Pat Pat GFlag                -- ^ and pattern
 >   | PStar Pat GFlag                   -- ^ star pattern
 >   | PPlus Pat Pat                     -- ^ plus pattern, it is used internally to indicate that it is unrolled from a PStar
 >   | PEmpty Pat                        -- ^ empty pattern, it is used intermally to indicate that mkEmpty function has been applied.
@@ -44,6 +45,7 @@
 >   (==) (PPair p1 p2) (PPair p1' p2') = (p1 == p1') && (p2 == p2')
 >   (==) (PChoice p1 p2 g1) (PChoice p1' p2' g2) = (g1 == g2) && (p2 == p2') && (p1 == p1') -- more efficient, because choices are constructed in left-nested
 >   (==) (PInterleave p1 p2 g1) (PInterleave p1' p2' g2) = (g1 == g2) && (((p2 == p2') && (p1 == p1')) || ((p2 == p1') && (p1 == p2')))
+>   (==) (PAnd p1 p2 g1) (PAnd p1' p2' g2) = (g1 == g2) && (p2 == p2') && (p1 == p1')
 >   (==) (PPlus p1 p2) (PPlus p1' p2') = (p1 == p1') && (p2 == p2')
 >   (==) (PStar p1 g1) (PStar p2 g2) =  (g1 == g2) && (p1 == p2)
 >   (==) (PE r1) (PE r2) = r1 == r2
@@ -55,6 +57,7 @@
 >     pretty (PPair p1 p2) = "<" ++ pretty p1 ++ "," ++ pretty p2 ++ ">"
 >     pretty (PChoice p1 p2 g) = "(" ++ pretty p1 ++ "|" ++ pretty p2 ++ ")" ++ (show g)
 >     pretty (PInterleave p1 p2 g) = "(" ++ pretty p1 ++ "%" ++ pretty p2 ++ ")" ++ (show g)
+>     pretty (PAnd p1 p2 g) = "(" ++ pretty p1 ++ "&" ++ pretty p2 ++ ")" ++ (show g)
 >     pretty (PE r) = show r
 >     pretty (PPlus p1 p2 ) = "(" ++ pretty p1 ++ "," ++ pretty p2 ++ ")"
 >     pretty (PStar p g) = (pretty p) ++ "*" ++ (show g)
@@ -76,12 +79,6 @@
 >     hash (PChoice p1 p2 NotGreedy) = let x1 = head (hash p1)
 >                                          x2 = head (hash p2)
 >                                      in x1 `seq` x2 `seq` [ 5 + x1 * primeL + x2 * primeR ]
->     hash (PInterleave p1 p2 Greedy) = let x1 = head (hash p1)
->                                           x2 = head (hash p2)
->                                       in x1 `seq` x2 `seq`  [ 10 + x1 * primeL + x2 * primeR ]
->     hash (PInterleave p1 p2 NotGreedy) = let x1 = head (hash p1)
->                                              x2 = head (hash p2)
->                                          in x1 `seq` x2 `seq` [ 11 + x1 * primeL + x2 * primeR ]
 >     hash (PPlus p1 p2) = let x1 = head (hash p1)
 >                              x2 = head (hash p2)
 >                          in x1 `seq` x2 `seq` [ 6 + x1 * primeL + x2 * primeR ]
@@ -93,6 +90,18 @@
 >                   in x `seq` [ 9 + x * primeL ]
 >     hash (PEmpty p) = let x = head (hash p)
 >                       in x `seq` [ 3 + x * primeL ]
+>     hash (PInterleave p1 p2 Greedy) = let x1 = head (hash p1)
+>                                           x2 = head (hash p2)
+>                                       in x1 `seq` x2 `seq`  [ 10 + x1 * primeL + x2 * primeR ]
+>     hash (PInterleave p1 p2 NotGreedy) = let x1 = head (hash p1)
+>                                              x2 = head (hash p2)
+>                                          in x1 `seq` x2 `seq` [ 11 + x1 * primeL + x2 * primeR ]
+>     hash (PAnd p1 p2 Greedy) =  let x1 = head (hash p1)
+>                                     x2 = head (hash p2)
+>                                 in x1 `seq` x2 `seq`  [ 12 + x1 * primeL + x2 * primeR ]
+>     hash (PAnd p1 p2 NotGreedy) =   let x1 = head (hash p1)
+>                                         x2 = head (hash p2)
+>                                     in x1 `seq` x2 `seq` [ 13 + x1 * primeL + x2 * primeR ]
 >
 
 > -- | function 'strip' strips away the bindings from a pattern
@@ -104,6 +113,7 @@
 > strip (PPlus p1 p2) = Seq (strip p1) (strip p2)
 > strip (PChoice p1 p2 g) = Choice (strip p1) (strip p2) g
 > strip (PInterleave p1 p2 g) = Interleave (strip p1) (strip p2) g
+> strip (PAnd p1 p2 g) = And (strip p1) (strip p2) g
 > strip (PEmpty p) = strip p
 
 
@@ -118,6 +128,7 @@
 > mkEmpPat (PPair p1 p2) = PPair (mkEmpPat p1) (mkEmpPat p2)
 > mkEmpPat (PChoice p1 p2 g) = PChoice (mkEmpPat p1) (mkEmpPat p2) g
 > mkEmpPat (PInterleave p1 p2 g) = PInterleave (mkEmpPat p1) (mkEmpPat p2) g
+> mkEmpPat (PAnd p1 p2 g) = PAnd (mkEmpPat p1) (mkEmpPat p2) g
 
 > {-| function 'pdPat' computes the partial derivatives of a pattern w.r.t. a letter.
 >    Integrating non-greedy operator with PStar
@@ -181,6 +192,7 @@
 >    nub ((pdPat p1 l)  ++ (pdPat p2 l)) -- nub doesn't seem to be essential
 > pdPat (PInterleave p1 p2 g) l =
 >    pdPat (PChoice (PPair p1 p2) (PPair p2 p1) g) l
+> pdPat (PAnd _ _ _) _ = error "TODO"
 > pdPat p l = error ((show p) ++ (show l))
 
 > -- | function 'getBindingsFrom' transfer bindings from p2 to p1
@@ -200,6 +212,7 @@
 >           assign (PPair p1 p2) b = PPair (assign p1 b) (assign p2 b)
 >           assign (PChoice p1 p2 g) b = PChoice (assign p1 b) (assign p2 b) g
 >           assign (PInterleave p1 p2 g) b = PInterleave (assign p1 b) (assign p2 b) g
+>           assign (PAnd p1 p2 g) b = PAnd (assign p1 b) (assign p2 b) g
 
 
 
@@ -210,12 +223,14 @@
 >     isGreedy (PPair p1 p2) = isGreedy p1 || isGreedy p2
 >     isGreedy (PChoice p1 p2 Greedy) = True
 >     isGreedy (PChoice p1 p2 NotGreedy) = False -- isGreedy p1 || isGreedy p2
->     isGreedy (PInterleave p1 p2 Greedy) = True
->     isGreedy (PInterleave p1 p2 NotGreedy) = False -- isGreedy p1 || isGreedy p2
 >     isGreedy (PEmpty p) = False
 >     isGreedy (PStar p Greedy) = True
 >     isGreedy (PStar p NotGreedy) = False
 >     isGreedy (PPlus p p') = isGreedy p || isGreedy p'
+>     isGreedy (PInterleave _ _ Greedy) = True
+>     isGreedy (PInterleave _ _ NotGreedy) = False -- isGreedy p1 || isGreedy p2
+>     isGreedy (PAnd _ _ Greedy) = True
+>     isGreedy (PAnd _ _ NotGreedy) = False -- isGreedy p1 || isGreedy p2
 
 
 > -- | The 'Binder' type denotes a set of (pattern var * range) pairs
@@ -231,8 +246,9 @@
 > hasBinder  (PStar p1 g)  = hasBinder p1
 > hasBinder  (PE r)        = False
 > hasBinder  (PChoice p1 p2 g) = (hasBinder p1) || (hasBinder p2)
-> hasBinder  (PInterleave p1 p2 g) = (hasBinder p1) || (hasBinder p2)
 > hasBinder  (PEmpty p) = hasBinder p
+> hasBinder  (PInterleave p1 p2 g) = (hasBinder p1) || (hasBinder p2)
+> hasBinder  (PAnd p1 p2 g) = (hasBinder p1) || (hasBinder p2)
 
 
 > -- | Function 'toBinder' turns a pattern into a binder
@@ -246,8 +262,9 @@
 > toBinderList  (PStar p1 g)    = (toBinderList p1)
 > toBinderList  (PE r)        = []
 > toBinderList  (PChoice p1 p2 g) = (toBinderList p1) ++ (toBinderList p2)
-> toBinderList  (PInterleave p1 p2 g) = (toBinderList p1) ++ (toBinderList p2)
 > toBinderList  (PEmpty p) = toBinderList p
+> toBinderList  (PInterleave p1 p2 g) = (toBinderList p1) ++ (toBinderList p2)
+> toBinderList  (PAnd p1 p2 g) = (toBinderList p1) ++ (toBinderList p2)
 
 > listifyBinder :: Binder -> [(Int, [Range])]
 > listifyBinder b = sortBy (\ x y -> compare (fst x) (fst y)) (IM.toList b)
@@ -355,6 +372,7 @@
 >      nub2 ((pdPat0 p1 l) ++ (pdPat0 p2 l)) -- nub doesn't seem to be essential
 > pdPat0 (PInterleave p1 p2 g) l =
 >      pdPat0 (PChoice (PPair p1 p2) (PPair p2 p1) g) l
+> pdPat0 (PAnd _ _ _) _ = error "TODO"
 
 
 > nub2 :: Eq a => [(a,b)] -> [(a,b)]
@@ -393,10 +411,14 @@
 >            else if isPhi p1'
 >                 then p2'
 >                 else PChoice p1' p2' g
->     simplify i@(PInterleave _ _ _) = i
 >     simplify (PStar p g) = PStar (simplify p) g
 >     simplify (PPlus p1 p2) = PPlus (simplify p1) (simplify p2)
 >     simplify (PE r) = PE (simplify r)
+>     simplify (PInterleave p1 p2 g) = PInterleave (simplify p1) (simplify p2) g
+>     simplify (PAnd p1 p2 g) =
+>         let p1' = simplify p1
+>             p2' = simplify p2
+>         in if p1' == p2' then p1' else (PAnd p1' p2' g)
 
 
 > instance IsEpsilon Pat where
@@ -404,10 +426,11 @@
 >    isEpsilon (PE r) = isEpsilon r
 >    isEpsilon (PPair p1 p2) =  (isEpsilon p1) && (isEpsilon p2)
 >    isEpsilon (PChoice p1 p2 _) =  (isEpsilon p1) && (isEpsilon p2)
->    isEpsilon (PInterleave p1 p2 _) =  (isEpsilon p1) && (isEpsilon p2)
 >    isEpsilon (PStar p _) = isEpsilon p
 >    isEpsilon (PPlus p1 p2) = isEpsilon p1 && isEpsilon p2
 >    isEpsilon (PEmpty _) = True
+>    isEpsilon (PInterleave p1 p2 _) =  (isEpsilon p1) && (isEpsilon p2)
+>    isEpsilon (PAnd p1 p2 _) =  (isEpsilon p1) && (isEpsilon p2)
 
 
 > instance IsPhi Pat where
@@ -415,7 +438,8 @@
 >    isPhi (PE r) = isPhi r
 >    isPhi (PPair p1 p2) =  (isPhi p1) || (isPhi p2)
 >    isPhi (PChoice p1 p2 _) =  (isPhi p1) && (isPhi p2)
->    isPhi (PInterleave p1 p2 _) =  (isPhi p1) || (isPhi p2)
 >    isPhi (PStar p _) = False
 >    isPhi (PPlus p1 p2) = isPhi p1 || isPhi p2
 >    isPhi (PEmpty _) = False
+>    isPhi (PInterleave p1 p2 _) =  (isPhi p1) || (isPhi p2)
+>    isPhi (PAnd p1 p2 _) =  (isPhi p1) || (isPhi p2)

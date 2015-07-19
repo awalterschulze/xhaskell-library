@@ -17,22 +17,24 @@
 >  | Empty        -- ^ an empty exp
 >  | L Char	  -- ^ a literal / a character
 >  | Choice RE RE GFlag -- ^ a choice exp 'r1 + r2'
->  | Interleave RE RE GFlag -- ^ a interleave exp 'r1 + r2'
 >  | Seq RE RE     -- ^ a pair exp '(r1,r2)'
 >  | Star RE GFlag -- ^ a kleene's star exp 'r*'
 >  | Any           -- ^ .
 >  | Not [Char]    -- ^ excluding characters e.g. [^abc]
+>  | Interleave RE RE GFlag -- ^ an interleave exp 'r1 % r2'
+>  | And RE RE GFlag -- ^ an and exp 'r1 & r2'
 
 > -- | the eq instance
 > instance Eq RE where
 >     (==) Empty Empty = True
 >     (==) (L x) (L y) = x == y
 >     (==) (Choice r1 r2 g1) (Choice r3 r4 g2) = (g1 == g2) && (r2 == r4) && (r1 == r3)
->     (==) (Interleave r1 r2 g1) (Interleave r3 r4 g2) = (g1 == g2) && (((r2 == r4) && (r1 == r3)) || ((r1 == r4) && (r2 == r3)))
 >     (==) (Seq r1 r2) (Seq r3 r4) = (r1 == r3) && (r2 == r4)
 >     (==) (Star r1 g1) (Star r2 g2) = g1 == g2 && r1 == r2
 >     (==) Any Any = True
 >     (==) (Not cs) (Not cs') = cs == cs'
+>     (==) (Interleave r1 r2 g1) (Interleave r3 r4 g2) = (g1 == g2) && (r2 == r4) && (r1 == r3)
+>     (==) (And r1 r2 g1) (And r3 r4 g2) = (g1 == g2) && (r2 == r4) && (r1 == r3)
 >     (==) _ _ = False
 
 
@@ -42,25 +44,28 @@
 >     show Empty = "<>"
 >     show (L c) = show c
 >     show (Choice r1 r2 g) = "(" ++ show r1 ++ "|" ++ show r2 ++ ")" ++ show g
->     show (Interleave r1 r2 g) = "(" ++ show r1 ++ "%" ++ show r2 ++ ")" ++ show g
 >     show (Seq r1 r2) = "<" ++ show r1 ++ "," ++ show r2 ++ ">"
 >     show (Star r g) = show r ++ "*" ++ show g
 >     show Any = "."
 >     show (Not cs) = "[^" ++ cs ++ "]"
+>     show (Interleave r1 r2 g) = "(" ++ show r1 ++ "%" ++ show r2 ++ ")" ++ show g
+>     show (And r1 r2 g) = "(" ++ show r1 ++ "&" ++ show r2 ++ ")" ++ show g
 
 > instance IsGreedy RE where
 >     isGreedy Phi = True
 >     isGreedy Empty = False
 >     isGreedy (Choice r1 r2 Greedy) = True
 >     isGreedy (Choice r1 r2 NotGreedy) = False -- (isGreedy r1) || (isGreedy r2)
->     isGreedy (Interleave r1 r2 Greedy) = True
->     isGreedy (Interleave r1 r2 NotGreedy) = False -- (isGreedy r1) || (isGreedy r2)
 >     isGreedy (Seq r1 r2) = (isGreedy r1) || (isGreedy r2)
 >     isGreedy (Star r Greedy) = True
 >     isGreedy (Star r NotGreedy) = False
 >     isGreedy (L _) = True
 >     isGreedy Any = True
 >     isGreedy (Not _) = True
+>     isGreedy (Interleave r1 r2 Greedy) = True
+>     isGreedy (Interleave r1 r2 NotGreedy) = False -- (isGreedy r1) || (isGreedy r2)
+>     isGreedy (And _ _ Greedy) = True
+>     isGreedy (And _ _ NotGreedy) = False -- (isGreedy r1) || (isGreedy r2)
 
 > instance Key RE where
 >     hash Phi = [0]
@@ -71,12 +76,6 @@
 >     hash (Choice r1 r2 NotGreedy) = {- let x1 = head (hash r1)
 >                                         x2 = head (hash r2)
 >                                     in [ 4 + x1 * primeL + x2 * primeR ] -} [4]
->     hash (Interleave r1 r2 Greedy) = {- let x1 = head (hash r1)
->                                      x2 = head (hash r2)
->                                  in [ 10 +  x1 * primeL + x2 * primeR ] -} [10]
->     hash (Interleave r1 r2 NotGreedy) = {- let x1 = head (hash r1)
->                                         x2 = head (hash r2)
->                                     in [ 11 + x1 * primeL + x2 * primeR ] -} [11]
 >     hash (Seq r1 r2) = let x1 = head (hash r1)
 >                            x2 = head (hash r2)
 >                        in [ 5 + x1 * primeL + x2 * primeR ] --  [5]
@@ -88,6 +87,18 @@
 >                  in [ 8 + x * primeL ] -} [8]
 >     hash Any = [2]
 >     hash (Not _) = [9]
+>     hash (Interleave r1 r2 Greedy) = {- let x1 = head (hash r1)
+>                                      x2 = head (hash r2)
+>                                  in [ 10 +  x1 * primeL + x2 * primeR ] -} [10]
+>     hash (Interleave r1 r2 NotGreedy) = {- let x1 = head (hash r1)
+>                                         x2 = head (hash r2)
+>                                     in [ 11 + x1 * primeL + x2 * primeR ] -} [11]
+>     hash (And r1 r2 Greedy) = {- let x1 = head (hash r1)
+>                                      x2 = head (hash r2)
+>                                  in [ 12 +  x1 * primeL + x2 * primeR ] -} [12]
+>     hash (And r1 r2 NotGreedy) = {- let x1 = head (hash r1)
+>                                         x2 = head (hash r2)
+>                                     in [ 13 + x1 * primeL + x2 * primeR ] -} [13]
 
 
 
@@ -101,12 +112,13 @@
 >   posEpsilon Phi = False
 >   posEpsilon Empty = True
 >   posEpsilon (Choice r1 r2 g) = (posEpsilon r1) || (posEpsilon r2)
->   posEpsilon (Interleave r1 r2 g) = (posEpsilon r1) && (posEpsilon r2)
 >   posEpsilon (Seq r1 r2) = (posEpsilon r1) && (posEpsilon r2)
 >   posEpsilon (Star r g) = True
 >   posEpsilon (L _) = False
 >   posEpsilon Any = False
 >   posEpsilon (Not _) = False
+>   posEpsilon (Interleave r1 r2 g) = (posEpsilon r1) && (posEpsilon r2)
+>   posEpsilon (And r1 r2 g) = (posEpsilon r1) && (posEpsilon r2)
 
 
 > -- | function 'isEpsilon' checks whether epsilon = r
@@ -114,24 +126,26 @@
 >   isEpsilon Phi = False
 >   isEpsilon Empty = True
 >   isEpsilon (Choice r1 r2 g) = (isEpsilon r1) && (isEpsilon r2)
->   isEpsilon (Interleave r1 r2 g) = (isEpsilon r1) && (isEpsilon r2)
 >   isEpsilon (Seq r1 r2) = (isEpsilon r1) && (isEpsilon r2)
 >   isEpsilon (Star Phi g) = True
 >   isEpsilon (Star r g) = isEpsilon r
 >   isEpsilon (L _) = False
 >   isEpsilon Any = False
 >   isEpsilon (Not _) = False
+>   isEpsilon (Interleave r1 r2 g) = (isEpsilon r1) && (isEpsilon r2)
+>   isEpsilon (And r1 r2 g) = (isEpsilon r1) && (isEpsilon r2)
 
 > instance IsPhi RE where
 >   isPhi Phi = True
 >   isPhi Empty = False
 >   isPhi (Choice r1 r2 g) = (isPhi r1) && (isPhi r2)
->   isPhi (Interleave r1 r2 g) = (isPhi r1) || (isPhi r2)
 >   isPhi (Seq r1 r2) = (isPhi r1) || (isPhi r2)
 >   isPhi (Star r g) = False
 >   isPhi (L _) = False
 >   isPhi Any = False
 >   isPhi (Not _) = False
+>   isPhi (Interleave r1 r2 g) = (isPhi r1) || (isPhi r2)
+>   isPhi (And r1 r2 g) = (isPhi r1) || (isPhi r2)
 
 > -- | function 'partDeriv' implements the partial derivative operations for regular expressions. We don't pay attention to the greediness flag here.
 > partDeriv :: RE -> Char -> [RE]
@@ -154,8 +168,6 @@
 >         s1 = partDerivSub r1 l
 >         s2 = partDerivSub r2 l
 >     in s1 `seq` s2 `seq` (s1 ++ s2)
-> partDerivSub (Interleave r1 r2 g) l =
->     partDerivSub (Choice (Seq r1 r2) (Seq r2 r1) g) l
 > partDerivSub (Seq r1 r2) l
 >     | posEpsilon r1 =
 >           let
@@ -171,6 +183,13 @@
 >     let
 >         s0 = partDerivSub r l
 >     in s0 `seq` [ (Seq r' (Star r g)) | r' <- s0 ]
+> partDerivSub (Interleave r1 r2 g) l =
+>     partDerivSub (Choice (Seq r1 r2) (Seq r2 r1) g) l
+> partDerivSub (And r1 r2 g) l =
+>     let
+>         s1 = partDerivSub r1 l
+>         s2 = partDerivSub r2 l
+>     in s1 `seq` s2 `seq` [And r1' r2' g | r1' <- s1, r2' <- s2]
 
 > -- | function 'sigmaRE' returns all characters appearing in a reg exp.
 > sigmaRE :: RE -> [Char]
@@ -182,10 +201,11 @@
 > sigmaREsub (Not cs) = filter (\c -> not (c `elem` cs)) (map chr [32 .. 127])
 > sigmaREsub (Seq r1 r2) = (sigmaREsub r1) ++ (sigmaREsub r2)
 > sigmaREsub (Choice r1 r2 g) = (sigmaREsub r1) ++ (sigmaREsub r2)
-> sigmaREsub (Interleave r1 r2 g) = (sigmaREsub r1) ++ (sigmaREsub r2)
 > sigmaREsub (Star r g) = sigmaREsub r
 > sigmaREsub Phi = []
 > sigmaREsub Empty = []
+> sigmaREsub (Interleave r1 r2 g) = (sigmaREsub r1) ++ (sigmaREsub r2)
+> sigmaREsub (And r1 r2 g) = (sigmaREsub r1) ++ (sigmaREsub r2)
 
 > instance Simplifiable RE where
 >     simplify (L l) = L l
@@ -207,7 +227,8 @@
 >            else if isPhi r2'
 >                 then r1'
 >                 else Choice r1' r2' g
->     simplify i@(Interleave _ _ _) = i
 >     simplify (Star r g) = Star (simplify r) g
 >     simplify Phi = Phi
 >     simplify Empty = Empty
+>     simplify (Interleave r1 r2 g) = Interleave (simplify r1) (simplify r2) g
+>     simplify (And r1 r2 g) = And (simplify r1) (simplify r2) g

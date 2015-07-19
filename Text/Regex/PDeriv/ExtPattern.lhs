@@ -18,6 +18,7 @@
 >          | EEscape Char   -- ^ backslash char
 >          | EChar Char     -- ^ the non-escaped char
 >          | EInterleave [EPat]
+>          | EAnd [EPat]
 >           deriving Show
 
 > -- | Function 'hasGroup' tests whether an external pattern has ( ... ) (i.e. variable patterns in the internal pattern)
@@ -39,3 +40,4 @@
 > hasGroup (EEscape _) = False
 > hasGroup (EChar _) = False
 > hasGroup (EInterleave eps) = any hasGroup eps
+> hasGroup (EAnd eps) = any hasGroup eps

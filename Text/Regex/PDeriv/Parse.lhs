@@ -8,9 +8,9 @@ internal pattern representation.
 This parser is largely adapted from Text.Regex.TDFA.ReadRegex
 
 > import Data.Char
-> import Text.ParserCombinators.Parsec((<|>), (<?>),
->                                      unexpected, try, runParser, many, getState, setState, CharParser, ParseError,
->                                      sepBy1, option, notFollowedBy, many1, lookAhead, eof, between,
+> import Text.ParserCombinators.Parsec((<|>),
+>                                      unexpected, try, runParser, many, getState, CharParser, ParseError,
+>                                      sepBy1, option, many1, lookAhead, eof, between,
 >                                      string, oneOf, noneOf, digit, char, anyChar)
 > import Control.Monad(liftM, when, guard)
 > import Data.List (sort,nub)
@@ -49,10 +49,13 @@ posix pattern parsing: we need to add binders everywhere
 
 
 > p_or :: CharParser EState EPat
-> p_or = EOr <$> sepBy1 p_interleave (char '|')
+> p_or = EOr <$> sepBy1 p_and (char '|')
 
 > p_interleave :: CharParser EState EPat
 > p_interleave = EInterleave <$> sepBy1 p_branch (char '%')
+
+> p_and :: CharParser EState EPat
+> p_and = EAnd <$> sepBy1 p_interleave (char '&')
 
 > p_ere :: CharParser EState EPat
 > p_ere = p_or
@@ -173,7 +176,7 @@ oct ascii, e.g. \000
 
 parse a single non-escaped char
 
-> specials = "^.[$()|*+?{\\%"
+> specials = "^.[$()|*+?{\\%&"
 
 > p_char = noneOf specials >>= \c -> return (EChar c)
 

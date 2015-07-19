@@ -144,13 +144,14 @@ getters and putters
 >          else trans' epat
 >        }
 >     where isStructural :: EPat -> Bool -- ^ indicate whether it is a complex structure which we need to add extra binding for POSIX tracking
->           isStructural (EOr _)     = True
->           isStructural (EConcat _) = True
->           isStructural (EOpt _ _)  = True
->           isStructural (EPlus _ _) = True
->           isStructural (EStar _ _) = True
+>           isStructural (EOr _)         = True
+>           isStructural (EConcat _)     = True
+>           isStructural (EOpt _ _)      = True
+>           isStructural (EPlus _ _)     = True
+>           isStructural (EStar _ _)     = True
 >           isStructural (EInterleave _) = True
->           isStructural _           = False
+>           isStructural (EAnd _)        = True
+>           isStructural _               = False
 
 > trans' :: EPat -> State TState Pat
 > trans' epat
@@ -222,19 +223,6 @@ getters and putters
 >          ; case ps of
 >            { (p':ps') ->
 >               return (foldl (\xs x -> PChoice xs x Greedy) p' ps')
->            ; [] -> error "an empty choice enountered." -- todo : capture the error in the monad state
->            }
->          }
->     ; EInterleave es ->
->         {-
->           e1 ~> p1  e2 ~> p2
->           -------------------
->             e1&e2 ~>_p p1&p2
->          -}
->       do { ps <- mapM trans es
->          ; case ps of
->            { (p':ps') ->
->               return (foldl (\xs x -> PInterleave xs x Greedy) p' ps')
 >            ; [] -> error "an empty choice enountered." -- todo : capture the error in the monad state
 >            }
 >          }
@@ -407,6 +395,32 @@ getters and putters
 >          ; let p = PVar i [] (PE (L c))
 >          ; return p
 >          }
+>     ; EInterleave es ->
+>         {-
+>           e1 ~> p1  e2 ~> p2
+>           -------------------
+>             e1%e2 ~>_p p1%p2
+>          -}
+>       do { ps <- mapM trans es
+>          ; case ps of
+>            { (p':ps') ->
+>               return (foldl (\xs x -> PInterleave xs x Greedy) p' ps')
+>            ; [] -> error "an empty interleave enountered." -- todo : capture the error in the monad state
+>            }
+>          }
+>     ; EAnd es ->
+>         {-
+>           e1 ~> p1  e2 ~> p2
+>           -------------------
+>             e1&e2 ~>_p p1&p2
+>          -}
+>       do { ps <- mapM trans es
+>          ; case ps of
+>            { (p':ps') ->
+>               return (foldl (\xs x -> PAnd xs x Greedy) p' ps')
+>            ; [] -> error "an empty and enountered." -- todo : capture the error in the monad state
+>            }
+>          }
 >     }
 
 
@@ -457,18 +471,6 @@ e ~>_r r
 >          ; case rs of
 >            { [] -> return Phi
 >            ; (r:rs) -> return (foldl (\ xs x -> Choice xs x Greedy) r rs)
->            }
->          }
->     ; EInterleave es ->
->       {-
->         e1 ~>_r r1 e2 ~>_r r2
->       -------------------
->         e1&e2 ~>_r r1&r2
->        -}
->       do { rs <- mapM r_trans es
->          ; case rs of
->            { [] -> return Phi
->            ; (r:rs) -> return (foldl (\ xs x -> Interleave xs x Greedy) r rs)
 >            }
 >          }
 >     ; EConcat es ->
@@ -601,5 +603,29 @@ e ~>_r r
 >     ; EChar c ->
 >         --  c ~>_r c
 >         return $ L c
+>     ; EInterleave es ->
+>       {-
+>         e1 ~>_r r1 e2 ~>_r r2
+>       -------------------
+>         e1%e2 ~>_r r1%r2
+>        -}
+>       do { rs <- mapM r_trans es
+>          ; case rs of
+>            { [] -> return Empty
+>            ; (r:rs) -> return (foldl (\ xs x -> Interleave xs x Greedy) r rs)
+>            }
+>          }
+>     ; EAnd es ->
+>       {-
+>         e1 ~>_r r1 e2 ~>_r r2
+>       -------------------
+>         e1&e2 ~>_r r1&r2
+>        -}
+>       do { rs <- mapM r_trans es
+>          ; case rs of
+>            { [] -> return Empty
+>            ; (r:rs) -> return (foldl (\ xs x -> And xs x Greedy) r rs)
+>            }
+>          }
 >     }
 >

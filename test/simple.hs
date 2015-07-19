@@ -14,16 +14,16 @@ import qualified Data.ByteString.Char8 as S
 import qualified Test.HUnit as Test
 
 type RegexecFunc r = r      -- ^ Compiled regular expression
-       -> S.ByteString -- ^ ByteString to match against
-       -> Either String (Maybe (S.ByteString, S.ByteString, S.ByteString, [S.ByteString]))
+    -> S.ByteString -- ^ ByteString to match against
+    -> Either String (Maybe (S.ByteString, S.ByteString, S.ByteString, [S.ByteString]))
 
 type CompileFunc r =
     S.ByteString -- ^ The regular expression to compile
     -> Either String r -- ^ Returns: the compiled regular expression
 
 type Runner = S.ByteString      -- ^ regular expression
-         -> S.ByteString -- ^ ByteString to match against
-         -> Result
+    -> S.ByteString -- ^ ByteString to match against
+    -> Result
 
 type Result = (S.ByteString, S.ByteString, S.ByteString, [S.ByteString])
 
@@ -34,10 +34,10 @@ run compile regexec p s =
   case compile p of
     Left e -> error $ " compilation failed . " ++ show e
     Right r -> let out = regexec r s
-             in case out of
-                     (Left errString) -> error $ " run failed . " ++ errString
-                     (Right Nothing) -> error "regexec returned nothing"
-                     (Right (Just v)) -> v
+        in case out of
+            (Left errString) -> error $ " run failed . " ++ errString
+            (Right Nothing) -> error "regexec returned nothing"
+            (Right (Just v)) -> v
 
 test :: String -> String -> String -> Runner -> Getter -> [String] -> IO Test.Counts
 test name regex input runner get output =
@@ -88,6 +88,7 @@ runTests = do {
     testLtoR ".*(bb|ab).*" "abc" matched ["ab", ""];
     testLtoR "(ab%c)" "abc" mainpart ["abc"];
     testLtoR "(c%ab)" "abc" mainpart ["abc"];
+    testLtoR "(a..&..c)" "AAabcAA" mainpart ["abc"];
 
     testLtoRD ".*" "abc" mainpart ["abc"];
     testLtoRD "a" "abc" mainpart ["a"];
@@ -105,6 +106,7 @@ runTests = do {
     testLtoRD ".*(bb|ab).*" "abc" matched ["ab", ""];
     testLtoRD "(ab%c)" "abc" mainpart ["abc"];
     testLtoRD "(c%ab)" "abc" mainpart ["abc"];
+    testLtoRD "(a..&..c)" "AAabcAA" mainpart ["abc"];
 
     testPosix ".*" "abc" mainpart ["abc"];
     testPosix "a" "abc" mainpart ["a"];
@@ -122,6 +124,7 @@ runTests = do {
     testPosix ".*(bb|ab).*" "abc" matched ["ab"];
     testPosix "(ab%c)" "abc" mainpart ["abc"];
     testPosix "(c%ab)" "abc" mainpart ["abc"];
+    testPosix "(a..&..c)" "AAabcAA" mainpart ["abc"];
 
     testRtoL ".*" "abc" mainpart [""];
     testRtoL "a" "abc" mainpart ["a"];
@@ -139,6 +142,7 @@ runTests = do {
     testRtoL ".*(bb|ab).*" "abc" matched ["ab", ""];
     testRtoL "(ab%c)" "abc" mainpart ["abc"];
     testRtoL "(c%ab)" "abc" mainpart ["abc"];
+    testRtoL "(a..&..c)" "AAabcAA" mainpart ["abc"];
 
     test2Pass ".*" "abc" mainpart ["abc"];
     test2Pass "a" "abc" mainpart ["a"];
@@ -156,6 +160,7 @@ runTests = do {
     test2Pass ".*(bb|ab).*" "abc" matched ["ab", ""];
     test2Pass "(ab%c)" "abc" mainpart ["abc"];
     test2Pass "(c%ab)" "abc" mainpart ["abc"];
+    test2Pass "(a..&..c)" "AAabcAA" mainpart ["abc"];
     return ()
 }
 
