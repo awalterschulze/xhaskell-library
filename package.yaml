@@ -1,0 +1,46 @@
+name:                xhaskell-library
+version:             0.1.0.0
+github:              "awalterschulze/xhaskell-library"
+license:             BSD3
+author:              "Walter Schulze"
+maintainer:          "awalterschulze@gmail.com"
+copyright:           "Walter Schulze"
+
+extra-source-files:
+- README.md
+- ChangeLog.md
+
+# Metadata used when publishing your package
+# synopsis:            Short description of your package
+# category:            Web
+
+# To avoid duplicated efforts in documentation and dealing with the
+# complications of embedding Haddock markup inside cabal files, it is
+# common to point users to the README.md file.
+description:         Please see the README on GitHub at <https://github.com/awalterschulze/xhaskell-library#readme>
+
+dependencies:
+- base >= 4.7 && < 5
+- regex-base >= 0.93.1
+- parsec
+- mtl
+- containers
+- bytestring
+- deepseq
+- parallel
+
+library:
+  source-dirs: src
+
+tests:
+  xhaskell-library-test:
+    main:                Spec.hs
+    source-dirs:         test
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - xhaskell-library
+    - hspec
+    - HUnit

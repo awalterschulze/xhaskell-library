@@ -1,9 +1,6 @@
 {-- By Walter Schulze, 2015, BSD License --}
 
-module Test (
-    runTests,
-    main,
-) where
+module Main where
 
 import qualified Text.Regex.PDeriv.ByteString.LeftToRight as LeftToRight
 import qualified Text.Regex.PDeriv.ByteString.RightToLeft as RightToLeft

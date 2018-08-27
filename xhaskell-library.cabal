@@ -1,0 +1,82 @@
+-- This file has been generated from package.yaml by hpack version 0.28.2.
+--
+-- see: https://github.com/sol/hpack
+--
+-- hash: 56d593a8bacdab19b7698bbeb6971b340aa97ea9f082f0f72ec3f4c30ce6e4d1
+
+name:           xhaskell-library
+version:        0.1.0.0
+description:    Please see the README on GitHub at <https://github.com/awalterschulze/xhaskell-library#readme>
+homepage:       https://github.com/awalterschulze/xhaskell-library#readme
+bug-reports:    https://github.com/awalterschulze/xhaskell-library/issues
+author:         Walter Schulze
+maintainer:     awalterschulze@gmail.com
+copyright:      Walter Schulze
+license:        BSD3
+license-file:   LICENSE
+build-type:     Simple
+cabal-version:  >= 1.10
+extra-source-files:
+    ChangeLog.md
+    README.md
+
+source-repository head
+  type: git
+  location: https://github.com/awalterschulze/xhaskell-library
+
+library
+  exposed-modules:
+      Text.Regex.PDeriv.ByteString
+      Text.Regex.PDeriv.ByteString.LeftToRight
+      Text.Regex.PDeriv.ByteString.LeftToRightD
+      Text.Regex.PDeriv.ByteString.Posix
+      Text.Regex.PDeriv.ByteString.RightToLeft
+      Text.Regex.PDeriv.ByteString.TwoPasses
+      Text.Regex.PDeriv.Common
+      Text.Regex.PDeriv.Dictionary
+      Text.Regex.PDeriv.ExtPattern
+      Text.Regex.PDeriv.IntPattern
+      Text.Regex.PDeriv.Nfa
+      Text.Regex.PDeriv.Parse
+      Text.Regex.PDeriv.Pretty
+      Text.Regex.PDeriv.RE
+      Text.Regex.PDeriv.String
+      Text.Regex.PDeriv.String.LeftToRightD
+      Text.Regex.PDeriv.Translate
+      Text.Regex.PDeriv.Word
+  other-modules:
+      Paths_xhaskell_library
+  hs-source-dirs:
+      src
+  build-depends:
+      base >=4.7 && <5
+    , bytestring
+    , containers
+    , deepseq
+    , mtl
+    , parallel
+    , parsec
+    , regex-base >=0.93.1
+  default-language: Haskell2010
+
+test-suite xhaskell-library-test
+  type: exitcode-stdio-1.0
+  main-is: Spec.hs
+  other-modules:
+      Paths_xhaskell_library
+  hs-source-dirs:
+      test
+  ghc-options: -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      HUnit
+    , base >=4.7 && <5
+    , bytestring
+    , containers
+    , deepseq
+    , hspec
+    , mtl
+    , parallel
+    , parsec
+    , regex-base >=0.93.1
+    , xhaskell-library
+  default-language: Haskell2010

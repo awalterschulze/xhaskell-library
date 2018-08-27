@@ -21,7 +21,6 @@
 
 > import Data.Char (ord)
 > import qualified Data.IntMap as IM
-> import qualified Data.BitSet as BS
 > import Data.List (nubBy)
 
 > -- | (sub)words represent by range
@@ -108,12 +107,13 @@ the lookup function
 >                 in im' `seq` xs `seq` x:(nub2sub im' xs)
 > -}
 
-> nub2aux bs [] acc = reverse acc
+> {- nub2aux bs [] acc = reverse acc
 > nub2aux bs (x@(k,_):xs) acc =
 >     case bs `seq` k `seq` BS.member k bs of
 >       True  -> xs `seq` nub2aux bs xs acc
 >       False -> let bs' = BS.insert k bs
 >                in bs' `seq` xs `seq` (nub2aux bs' xs (x:acc))
+> -}
 
 
 > nub3 :: [(Int,a,Int)] -> [(Int,a,Int)]
